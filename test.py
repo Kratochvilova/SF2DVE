@@ -14,69 +14,76 @@ from lxml import etree
 # stateflow constructions
 class notSupportedException(Exception): pass
 
-# TODO: on event actions and bind actions
-#       Also, in MATLAB expressions there can be allmost anything, so this is
-#       going to be hard. For now, I will use something less robust but easier
-#       and will do this part later.
-def parseLabel(label):
-    actionKeywords = "(entry:|during:|exit:)"  
-    
+# TODO: C syntax
+#       detect wrong syntax (MATLAB)
+#       replace ';' and '\n' for ','
+def parseStateLabel(label):
     if (label == None or label.findtext(".") == ""):    
         return ""
     
-    newLabel = label.findtext(".") 
-    temp = re.match(r"[^\n]*/((.|\n)*)", newLabel).group(1)  
-    if (temp != None):
-        newLabel = "entry:" + temp
+    # deleting name and giving "entry:" before possible entry actions after '/'
+    newLabel = label.findtext(".")
+    match = re.match(r"[^\n]*/((.|\n)*)", newLabel)
+    if (match != None):
+        newLabel = "entry:" + match.group(1)
     else:
-        temp = re.match(r"[^\n]*\n((.|\n)*)", newLabel).group(1)
-        if (temp != None):
-            newLabel = temp
+        match = re.match(r"[^\n]*\n((.|\n)*)", newLabel)
+        if (match != None):
+            newLabel = match.group(1)
         else:
             return ""
             
-    # TODO: replace abreviations
+    # replacing abreviations
+    newLabel.replace("en:", "entry:") 
+    newLabel.replace("du:", "during:")
+    newLabel.replace("ex:", "exit:")
+    
+    actionKeywords = "(entry:|during:|exit:)"
+    
+    # determining intervals of actions of one type
+    limits = [m.start() for m in re.finditer(actionKeywords, newLabel)]
+    limits.sort()
+    limits.append(-1)
+    intervals = []
+    temp = None
+    for limit in limits:
+        if (temp != None):
+            intervals.append((temp, limit))
+        temp = limit
     
     entryActions = ""
     duringActions = ""
-    exitActions = ""
-    for temp in re.findall(r"entry:((.|\n)*)" + actionKeywords, newLabel).group(1):
-        entryActions += temp 
-    for temp in re.findall(r"during:((.|\n)*)" + actionKeywords, newLabel).group(1):
-        duringActions += temp 
-    for temp in re.findall(r"exit:((.|\n)*)" + actionKeywords, newLabel).group(1):
-        exitActions += temp 
+    exitActions = ""        
     
-    # TODO: procces '\n' and ';'
+    for interval in intervals:
+        if newLabel[interval[0]:].startswith("entry:"):
+            entryActions += newLabel[interval[0]+len("entry:"):interval[1]] 
+        elif newLabel[interval[0]:].startswith("during:"):
+            duringActions += newLabel[interval[0]+len("during:"):interval[1]]
+        elif newLabel[interval[0]:].startswith("exit:"):
+            exitActions += newLabel[interval[0]+len("exit:"):interval[1]]
+    
+    return ("entry:" + entryActions.strip() + 
+            "during:" + duringActions.strip() + 
+            "exit:" + exitActions.strip())
 
 def writeStateActions(label, actionType, outf):
-    if (label == None or label.findtext(".") == ""):    
+    if (label == None or label == ""):
         return
     
-    if (actionType == "entry:"):
-        abbreviation = "en:"
-    elif (actionType == "during:"):
-        abbreviation = "du:"
-    elif (actionType == "exit:"):
-        abbreviation = "ex:"
+    if actionType == "entry:":
+        nextType = "during:"
+    elif actionType == "during:":
+        nextType = "exit:"
+    elif actionType == "exit:":
+        nextType = ""
     else:
-        abbreviation = "undefined"
+        return
     
-    # TODO: there can be another action after ';' and there can be antry
-    #       actions without the keyword "entry" or "en"
-    for action in re.findall(actionType + "([^;]+)", label.findtext(".")):
+    action = re.search(actionType + r"((.|\n)*)" + nextType, label)
+    if (action.group(1).strip() != ""):
         outf.write("effect ")
-        outf.write(action.strip())
-        # this is just wrong
-        if (action[-1] != ';' and action[-2] != ';'):
-            outf.write("; ")
-    if (abbreviation != "undefined"):
-        for action in re.findall(abbreviation + "([^;]+)", label.findtext(".")):
-            outf.write("effect ")
-            outf.write(action.strip())
-            # this is just wrong
-            if (action[-1] != ';' and action[-2] != ';'):
-                outf.write("; ")
+        outf.write(action.group(1).strip())
 
 def writeTransitionActions(label, actionType, outf):
     if (label == None or label.findtext(".") == ""):    
@@ -90,9 +97,6 @@ def writeTransitionActions(label, actionType, outf):
     for action in re.findall("{(.*)}", label.findtext(".").split("/")[part]):
         outf.write("effect ")
         outf.write(action.strip())
-        # this is just wrong
-        if (action[-1] != ';' and action[-2] != ';'):
-            outf.write("; ")
 
 def writeTransitionConditions(label, outf):
     if (label == None or label.findtext(".") == ""):    
@@ -101,9 +105,6 @@ def writeTransitionConditions(label, outf):
     for condition in re.findall("\[(.*)\]", label.findtext(".")):
         outf.write("guard ")
         outf.write(condition.strip())
-        # this is just wrong
-        if (condition[-1] != ';' and condition[-2] != ';'):
-            outf.write("; ")        
             
 def main(infile, outfile):
     tree = etree.parse(infile)
@@ -165,28 +166,33 @@ def main(infile, outfile):
                 "source state (only when transition is taken)."
                 % trans.get("SSID"))
         except notSupportedException as e:
-            print(e, file=sys.stderr)
+            print(e)
         
         # actions
         label = trans.find('P[@Name="labelString"]')
         writeTransitionActions(label, "condition", outf)
-                
+        
         label = tree.find('%s/state[@SSID="%s"]/P[@Name="labelString"]' % (path, src))        
+        label = parseStateLabel(label)        
         writeStateActions(label, "exit:", outf)
-                
+        
         label = trans.find('P[@Name="labelString"]')
         writeTransitionActions(label, "action", outf)
-                
+        
         label = tree.find('%s/state[@SSID="%s"]/P[@Name="labelString"]' % (path, dst))
+        label = parseStateLabel(label)
         writeStateActions(label, "entry:", outf)
         
-        outf.write("}")        
+        outf.write("}")
         outf.write(",\n")
         
     # during actions (transitions)
-    for state in tree.findall("%s/state" % path):        
+    for state in tree.findall("%s/state" % path):
         label = state.find('P[@Name="labelString"]')
-        if (label != None and re.search("during:", label.findtext(".")) != None):
+        label = parseStateLabel(label)
+
+        if (label != None and 
+            re.search(r"during:((.|\n)*)exit:", label).group(1).strip() != ""):
             outf.write("\t\t")
             
             # from -> to
