@@ -10,20 +10,30 @@ import sys
 import re
 from lxml import etree
 
-processPrefix = "Process_"
-statePrefix = "State_"
+path = "Stateflow/machine/Children/chart/Children"
+processPrefix = "process_"
+statePrefix = "state_"
 actionKeywords = "(entry:|during:|exit:)"
 
-# for now there is just this one exception for any kind of unsupported 
-# stateflow constructions
+# exception for any kind of unsupported stateflow constructions
 class notSupportedException(Exception): pass
 
+
+# TODO: plannarization
+class plannarized():
+    pass
+
+def plannarize(tree):
+    pass
+
+
+
 # TODO: C syntax
-#       replace ';' and '\n' for ',' 
+#       replace ';' and '\n' for ','
 #       or divide sequence of actions into single actions
 def parseStateLabel(label):
     if (label == None or label == ""):    
-        return ""
+        return "entry: during: exit: "
     
     # deleting name and puting "entry:" before possible entry actions after '/'
     match = re.match(r"[^\n]*/((.|\n)*)", label)
@@ -34,7 +44,7 @@ def parseStateLabel(label):
         if (match != None):
             label = match.group(1)
         else:
-            return ""
+            return "entry: during: exit: "
             
     # replacing abreviations
     label = label.replace("en:", "entry:") 
@@ -59,15 +69,24 @@ def parseStateLabel(label):
     
     for interval in intervals:
         if label[interval[0]:].startswith("entry:"):
-            entryActions += label[interval[0]+len("entry:"):interval[1]] 
+            if (interval[1] == -1):
+                entryActions += label[interval[0]+len("entry:"):]
+            else:
+                entryActions += label[interval[0]+len("entry:"):interval[1]] 
         elif label[interval[0]:].startswith("during:"):
-            duringActions += label[interval[0]+len("during:"):interval[1]]
+            if (interval[1] == -1):
+                duringActions += label[interval[0]+len("during:"):]
+            else:
+                duringActions += label[interval[0]+len("during:"):interval[1]]
         elif label[interval[0]:].startswith("exit:"):
-            exitActions += label[interval[0]+len("exit:"):interval[1]]
+            if (interval[1] == -1):
+                exitActions += label[interval[0]+len("exit:"):]
+            else:
+                exitActions += label[interval[0]+len("exit:"):interval[1]]
     
-    return ("entry:" + entryActions.strip() + 
-            "during:" + duringActions.strip() + 
-            "exit:" + exitActions.strip())
+    return ("entry: " + entryActions.strip() + 
+            "during: " + duringActions.strip() + 
+            "exit: " + exitActions.strip())
 
 def writeStateActions(label, actionType, outf):
     if (label == None or label == ""):
@@ -110,17 +129,29 @@ def writeTransitionActions(labelElement, actionType, outf):
             if (action[-1] != ";"):
                 outf.write(";")
 
-def writeTransitionConditions(labelElement, outf):
+def repareCondition(condition):
+    if (condition == ""):
+        return "true"
+    else:
+        return condition
+
+def writeTransitionConditions(labelElement, outf, negation):
     if (labelElement == None or labelElement.findtext(".") == ""):
+        # if negation is true, there shoud be raised exception or returned 
+        # something that would indicate, what's happend (this means that there
+        # is transition that cannot be taken)
         return
-    
-    for condition in re.findall("\[(.*)\]", 
-                                labelElement.findtext(".").split("/")[0]):
-        condition = condition.strip()        
-        if (condition != ""):
-            outf.write(" guard %s" % condition)
-            if (condition[-1] != ';'):
-                outf.write(';')
+
+    conditions = " and ".join(repareCondition(condition.strip()) for condition 
+        in re.findall("\[(.*)\]", labelElement.findtext(".").split("/")[0]))
+
+    if (conditions != ""):
+        if (negation):
+            outf.write(" guard not(%s)" % conditions)
+        else:
+            outf.write(" guard %s" % conditions)
+        if (conditions[-1] != ';'):
+            outf.write(';')
 
 def getStateName(labelElement):
     if (labelElement == None or labelElement.findtext(".") == ""):    
@@ -137,6 +168,11 @@ def getStateName(labelElement):
          
 def main(infile, outfile):
     tree = etree.parse(infile)
+    
+    # there should be some input validation
+    # (there should be language setting (MATLAB or nothing) somewhere in 
+    # ModelInformation.Model.ConfigurationSet.Array.Object.Array.Object)
+    
     outf = open(outfile, 'w')
     
     # system, TODO: check syntax; check if stateflow is allways synchronous
@@ -149,23 +185,28 @@ def main(infile, outfile):
         
     path = "Stateflow/machine/Children/chart/Children"
 
-    # process Process_X {
+    # process
     outf.write("process %s%s {\n" % (processPrefix, 
                                      tree.find("Stateflow/machine").get("id")))
 
-    # state_1, state_2, state_3, ... ;
+    # variables
+    for var in tree.findall("%s/data" % path):
+        outf.write("\t%s %s;\n" % (var.findtext('P[@Name="dataType"]'), var.get("name")))
+
+    # states
     outf.write("\tstate init, ")
     outf.write(", ".join(statePrefix + state.get("SSID") for state in 
                          tree.findall("%s/state" % path)))
-    outf.write("; // States are named by their SSID. Corresponding names are "
-               "as follows: ")
-    for state in tree.findall("%s/state" % path):
-        labelElement = state.find('P[@Name="labelString"]')
-        outf.write("%s%s - %s; " % (statePrefix, state.get("SSID"), 
-                                    getStateName(labelElement)))
+    outf.write("; ")
+    #outf.write("// States are named by their SSID (with exception of "
+    #           "additional state init). Corresponding names are as follows: ")
+    #for state in tree.findall("%s/state" % path):
+    #    labelElement = state.find('P[@Name="labelString"]')
+    #    outf.write("%s%s - %s; " % (statePrefix, state.get("SSID"), 
+    #                                getStateName(labelElement)))
     outf.write("\n")
 
-    # init init;
+    # initial state
     outf.write("\tinit init;\n")    
     
     # transitions (without loops representing during actions)
@@ -173,8 +214,9 @@ def main(infile, outfile):
     #       string before every effect or is it necessary to have only one?
     #       Can there be ';' after the last guards and effects?
     #       Can there be ',' after the last transition?
-    outf.write("\ttrans\n")
-    for trans in tree.findall("%s/transition" % path):
+    outf.write("\ttrans\n")   
+    transitions = tree.findall("%s/transition" % path)
+    for trans in transitions:
         outf.write("\t\t")
         
         # from -> to
@@ -191,9 +233,9 @@ def main(infile, outfile):
         
         outf.write((" {"))
         # conditions, TODO: condition actions should perhaps take place even 
-        #                   if condition is false
+        #                   if condition is false - need to find out!
         labelElement = trans.find('P[@Name="labelString"]')
-        writeTransitionConditions(labelElement, outf)
+        writeTransitionConditions(labelElement, outf, False)
         try:
             if (labelElement != None and 
                 re.search("{(.*)}", labelElement.findtext(".").split("/")[0]) 
@@ -206,6 +248,18 @@ def main(infile, outfile):
                 % trans.get("SSID"))
         except notSupportedException as e:
             print(e)
+        
+        # negated conditions of transitions with higher priority - this should
+        # guarantee that conditions 
+        # solve priorities in case of conflicting transitions
+        executionOrder = trans.find('P[@Name="executionOrder"]').findtext(".")
+        if (executionOrder != "1"):
+            print("priorities! transition %s" % trans.get("SSID"))
+            for trans2 in transitions:
+                executionOrder2 = trans2.find('P[@Name="executionOrder"]').findtext(".")
+                src2 = trans2.findtext('src/P[@Name="SSID"]')                
+                if (src2 == src and executionOrder2 < executionOrder):
+                    writeTransitionConditions(trans2.find('P[@Name="labelString"]'), outf, True)
         
         # actions
         labelElement = trans.find('P[@Name="labelString"]')
@@ -236,22 +290,23 @@ def main(infile, outfile):
         labelElement = state.find('P[@Name="labelString"]')
         if (labelElement != None):
             label = labelElement.findtext(".")
-            label = parseStateLabel(label)
+        else:
+            label = ""    
+        label = parseStateLabel(label)
 
         if (re.search(r"during:((.|\n)*)exit:", label).group(1).strip() != ""):
             outf.write("\t\t")
             
             # from -> to
             ssid = state.get("SSID")
-            outf.write(statePrefix)
-            outf.write(ssid)
-            outf.write(" -> ")
-            outf.write(statePrefix)
-            outf.write(ssid)
+            outf.write("%s%s -> %s%s" % (statePrefix, ssid, statePrefix, ssid))
             
             outf.write((" {"))
-            # TODO: conditions - should there be some condition? Or maybe 
-            #       somehow simulate events?
+            # conditions
+            for trans in transitions:
+                src = trans.findtext('src/P[@Name="SSID"]')                
+                if (src == ssid):
+                    writeTransitionConditions(trans.find('P[@Name="labelString"]'), outf, True)
             
             # actions
             writeStateActions(label, "during:", outf)            
