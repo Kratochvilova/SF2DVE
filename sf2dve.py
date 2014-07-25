@@ -22,7 +22,7 @@ class notSupportedException(Exception): pass
 
 # TODO: initializing to 0?
 class plannarized:
-    machineID = 0
+    chartID = 0
     states = {}
     transitions = []
     
@@ -42,9 +42,11 @@ def getStateName(labelElement):
 def makePlannarized(tree):
     stateflow = plannarized()
 
-    # TODO: find out what is this machine (if it correspons with process in 
-    # DVE and what to do it there are more or them)
-    stateflow.machineID = tree.find("Stateflow/machine").get("id")    
+    # TODO: find out what is chart (if it correspons with process in 
+    # DVE and what to do it there are more or them) and machine
+    if (len(tree.findall("Stateflow/machine/Children/chart")) != 1):
+        print("chyba")
+    stateflow.chartID = tree.find("Stateflow/machine/Children/chart").get("id")        
     
     # storing leaf states of the state hierarchy (ssid, name, label, parents)
     # "init" is for future information whether there is some default transition
@@ -76,8 +78,8 @@ def makePlannarized(tree):
         if (srcElement == None and dst in stateflow.states.keys()):
             stateflow.states[dst]["init"] = True
         
-    # storing transitions (label, source, destination, execution order)
-    # (ssid doesn't make sence since there can be transition from superstate
+    # storing transitions (ssid, label, source, destination, execution order)
+    # (ssid aren't unique anymore since there can be transition from superstate
     # and hence several transitions with the same ssid are created)
     for trans in tree.findall("//transition"):
         labelElement = trans.find('P[@Name="labelString"]')
@@ -104,10 +106,12 @@ def makePlannarized(tree):
         sources = []
         if (src == "init" or src in stateflow.states.keys()):
             sources.append(src)
+            hierarchy = 0
         else:
             for stateSSID, state in stateflow.states.items():
                 if (src in state["parents"]):
                     sources.append(stateSSID)
+                    hierarchy = 1 + state["parents"].index(src)
         
         if (dst in stateflow.states.keys()):
             destination = dst
@@ -117,19 +121,20 @@ def makePlannarized(tree):
                 # TODO: this would be better, but for some reason these xpath
                 # conditions won't work:
                 # childTrans = child.find('Children/transition/src[not(P)]')
-                for trans in child.findall("Children/transition"):
-                    if (trans.find('src/P[@Name="SSID"]') == None):
-                        childTrans = trans
+                for t in child.findall("Children/transition"):
+                    if (t.find('src/P[@Name="SSID"]') == None):
+                        childTrans = t
                         break
                 childSSID = childTrans.findtext('dst/P[@Name="SSID"]')
                 child = child.find('Children/state[@SSID="%s"]' % childSSID)
             destination = childSSID
-            
-        order = trans.findtext('P[@Name="executionOrder"]')
+        
+        order = int(trans.findtext('P[@Name="executionOrder"]'))
         
         for source in sources:
-            stateflow.transitions.append({"label":label, "src":source, 
-            "dst":destination, "order":order})
+            stateflow.transitions.append({"ssid":trans.get("SSID"), 
+            "label":label, "src":source, "dst":destination, 
+            "hierarchy":hierarchy, "order":order})
     
     return stateflow
     
@@ -281,7 +286,7 @@ def main(infile, outfile):
     outf.write("property true\n\n")
 
     # process
-    outf.write("process %s%s {\n" % (processPrefix, stateflow.machineID))
+    outf.write("process %s%s {\n" % (processPrefix, stateflow.chartID))
 
     # variables
     # TODO: correct this and look for other types
@@ -338,12 +343,15 @@ def main(infile, outfile):
         
         # negated conditions of transitions with higher priority - this should
         # solve priorities in case of conflicting transitions
+        # (transition A is of higher priority then transition B if A has lower
+        # order or if orders are the same and A is higher in hierarchy)
         # TODO: comparing strings (trans2["order"] < trans["order"])?
-        if (trans["order"] != "1"):
-            for trans2 in stateflow.transitions:
-                if (trans2["src"] == trans["src"] and 
-                    trans2["order"] < trans["order"]):
-                    writeTransitionConditions(trans2["label"], outf, False)
+        for trans2 in stateflow.transitions:
+            if (trans2["src"] == trans["src"] and 
+                (trans2["order"] < trans["order"] or 
+                (trans2["order"] == trans["order"] and 
+                trans2["hierarchy"] > trans["hierarchy"]))):
+                writeTransitionConditions(trans2["label"], outf, False)
         
         # actions
         writeTransitionActions(trans["label"], "condition", outf)
@@ -392,5 +400,3 @@ if __name__ == "__main__":
         sys.exit(main(sys.argv[1], sys.argv[2]))
     else:
         sys.exit(1)
-
-
