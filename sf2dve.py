@@ -14,12 +14,26 @@ path = "Stateflow/machine/Children/chart/Children"
 processPrefix = "process_"
 statePrefix = "state_"
 actionKeywords = "(entry:|during:|exit:)"
+actionAbbreviations = "(en|du|ex)"
 
 # exception for any kind of unsupported stateflow constructions
 class notSupportedException(Exception): pass
 
 class invalidInputException(Exception): pass
 
+# plannarized stateflow
+# states - leaf states of the state hierarchy - ssid, hierarchal name, label
+#       parents, init (information whether there is default transition to this
+#       state)
+# transitions - ssid (no longer unique), label, source, destination, hierarchy,
+#       order (hierarchy and order together define execution order - one
+#       transition has priority over another if it has lower hierarchy number,
+#       or the same hierarchy number and lower order number)
+#       - for a transition from a superstate there is a transition from each
+#       leaf substate
+#       - for  transition to a superstate there is a transition to every leaf
+#       substate, such that there is default transition to this substate and
+#       all its parents with lower hierarchy then the aforementioned superstate
 class plannarized:
     chartID = 0
     states = {}
@@ -61,27 +75,44 @@ def getStateName(label):
 # TODO: C syntax
 #       replace ';' and '\n' for ','
 def parseStateLabel(label):
-    if (label == None or label == ""):
-        return "entry: during: exit: "
-
-    # deleting name and puting "entry:" before possible entry actions after '/'
-    match = re.match(r"[^\n]*/((.|\n)*)", label)
-    if (match != None):
-        label = "entry:" + match.group(1)
+    if isinstance(label, etree._Element):
+        labelString = label.findtext(".")
+    elif isinstance(label, str):
+        labelString = label
     else:
-        match = re.match(r"[^\n]*\n((.|\n)*)", label)
-        if (match != None):
-            label = match.group(1)
-        else:
-            return "entry: during: exit: "
+        raise TypeError()
 
+    labelDict = {}
+
+    if labelString == "":
+        return labelDict
+
+    # separating name
+    match = re.match(r"([^\n]*)/((.|\n)*)", labelString)
+    if (match != None):
+        labelDict["name"] = match.group(1).strip()
+        labelString = match.group(2)
+    else:
+        match = re.match(r"([^\n]*)\n((.|\n)*)", labelString)
+        if (match != None):
+            labelDict["name"] = match.group(1).strip()
+            labelString = match.group(2)
+        else:
+            labelDict["name"] = labelString
+            return labelDict
+    
+    # puting "entry:" before possible entry actions directly after '/' or '\n'
+    # character after the state name    
+    if re.match(actionKeywords, labelString) == None:
+        labelString = "entry:" + labelString
+    
     # replacing abreviations
-    label = label.replace("en:", "entry:")
-    label = label.replace("du:", "during:")
-    label = label.replace("ex:", "exit:")
+    labelString = labelString.replace("en:", "entry:")
+    labelString = labelString.replace("du:", "during:")
+    labelString = labelString.replace("ex:", "exit:")
 
     # determining intervals of actions of one type
-    limits = [m.start() for m in re.finditer(actionKeywords, label)]
+    limits = [m.start() for m in re.finditer(actionKeywords, labelString)]
     limits.sort()
     limits.append(-1)
     intervals = []
@@ -92,30 +123,50 @@ def parseStateLabel(label):
         temp = limit
 
     # dividing label
-    entryActions = ""
-    duringActions = ""
-    exitActions = ""
-
+    labelDict["en"] = []
+    labelDict["du"] = []
+    labelDict["ex"] = []
+    
     for interval in intervals:
-        if label[interval[0]:].startswith("entry:"):
+        if labelString[interval[0]:].startswith("entry:"):
             if (interval[1] == -1):
-                entryActions += label[interval[0]+len("entry:"):]
+                labelDict["en"].append(labelString[interval[0]+len("entry:"):])
             else:
-                entryActions += label[interval[0]+len("entry:"):interval[1]]
-        elif label[interval[0]:].startswith("during:"):
+                labelDict["en"].append(labelString[interval[0]+len("entry:"):interval[1]])
+        elif labelString[interval[0]:].startswith("during:"):
             if (interval[1] == -1):
-                duringActions += label[interval[0]+len("during:"):]
+                labelDict["du"].append(labelString[interval[0]+len("during:"):])
             else:
-                duringActions += label[interval[0]+len("during:"):interval[1]]
-        elif label[interval[0]:].startswith("exit:"):
+                labelDict["du"].append(labelString[interval[0]+len("during:"):interval[1]])
+        elif labelString[interval[0]:].startswith("exit:"):
             if (interval[1] == -1):
-                exitActions += label[interval[0]+len("exit:"):]
+                labelDict["ex"].append(labelString[interval[0]+len("exit:"):])
             else:
-                exitActions += label[interval[0]+len("exit:"):interval[1]]
+                labelDict["ex"].append(labelString[interval[0]+len("exit:"):interval[1]])
 
-    return ("entry: " + entryActions.strip() +
-            "during: " + duringActions.strip() +
-            "exit: " + exitActions.strip())
+    return labelDict
+
+# for leaf state returns [(SSID of the state, listOfLabels)], otherwise
+# searches all default child transitions and recursively calls itself on their
+# destination and updated listOfLabels
+def getDefaultPaths(stateEl, listOfLabels):
+    if stateEl.find("Children") == None:
+        return [(stateEl.get("SSID"), listOfLabels)]
+    
+    listOfPaths = []
+    for trans in filter(lambda x:x.find('src/P[@Name="SSID"]') == None,
+                        stateEl.findall('Children/transition')):
+        dst = trans.findtext('dst/P[@Name="SSID"]')
+        labelEl = trans.find('P[@Name="labelString"]')
+        if (labelEl == None):
+            label = ""
+        else:
+            label = labelEl.findtext(".")
+            if label == None:
+                label = ""
+        listOfPaths += getDefaultPaths(stateEl.find('Children/state[@SSID="%s"]' % dst), 
+                                       listOfLabels + [label])
+    return listOfPaths
 
 def makePlannarized(tree):
     stateflow = plannarized()
@@ -125,59 +176,57 @@ def makePlannarized(tree):
     stateflow.chartID = tree.find("Stateflow/machine/Children/chart").get("id")        
 
     # storing leaf states of the state hierarchy (ssid, name, label, parents)
-    # "init" is for future information whether there is some default transition
-    for state in tree.findall("//state"):
-        if (state.find("Children") == None):
-            labelElement = state.find('P[@Name="labelString"]')
-            label = parseStateLabel(labelElement.findtext("."))
+    # "init" is for future information whether there is default transition
+    for state in filter(lambda x:x.find("Children") == None, 
+                        tree.findall("//state")):
+        labelEl = state.find('P[@Name="labelString"]')
+        labelDict = parseStateLabel(labelEl.findtext("."))
 
-            parents = []
-            name = getStateName(labelElement)
-            longName = name
-            parent = state.getparent().getparent()
-            while (parent.tag == "state"):
-                parents.append(parent.get("SSID"))
-                longName = getStateName(parent.find('P[@Name="labelString"]'))\
-                       + "." + longName
-                parent = parent.getparent().getparent()
+        parents = []
+        longName = labelDict["name"]
+        parent = state.getparent().getparent()
+        while (parent.tag == "state"):
+            parents.append(parent.get("SSID"))
+            longName = getStateName(parent.find('P[@Name="labelString"]')) +\
+                "_" + longName
+            parent = parent.getparent().getparent()
+        
+        stateflow.states[state.get("SSID")] = {"longName":longName, 
+        "label":labelDict, "parents":parents, "init":False}
 
-            stateflow.states[state.get("SSID")] = {"longName":longName,
-            "name":name, "label":label, "parents":parents, "init":False}
-
-    # seting "init"
+    # setting "init"
     for trans in tree.findall("//transition"):
         srcElement = trans.find('src/P[@Name="SSID"]')
         dst = trans.findtext('dst/P[@Name="SSID"]')
         if (srcElement == None and dst in stateflow.states.keys()):
             stateflow.states[dst]["init"] = True
 
-    stateflow.states["init"] = {"longName":"init", "name":"init",
-    "label":"entry: during: exit: ", "parents":[], "init":True}
+    stateflow.states["init"] = {"longName":"init", "label":{"name":"init"}, 
+                                "parents":[], "init":True}
 
     # storing transitions (ssid, label, source, destination, execution order)
     # (ssid aren't unique anymore since there can be transition from superstate
     # and hence several transitions with the same ssid are created)
     for trans in tree.findall("//transition"):
-        labelElement = trans.find('P[@Name="labelString"]')
-        if (labelElement == None):
+        labelEl = trans.find('P[@Name="labelString"]')
+        if (labelEl == None):
             label = ""
         else:
-            label = labelElement.findtext(".")
+            label = labelEl.findtext(".")
 
-        srcElement = trans.find('src/P[@Name="SSID"]')
-        if (srcElement == None):
+        srcEl = trans.find('src/P[@Name="SSID"]')
+        if (srcEl == None):
             src = "init"
         else:
-            src = srcElement.findtext(".")
-        dstElement = trans.find('dst/P[@Name="SSID"]')
-        dst = dstElement.findtext(".")
+            src = srcEl.findtext(".")
+        dst = trans.findtext('dst/P[@Name="SSID"]')
+        
 
         if (src == "init" and trans.getparent().getparent().tag != "chart"):
             continue
 
-        # if there is transition from some superstate, one transition from
-        # each substate is created
-        # if there is transition to some superstate, transition to the substate
+        # for transition from superstate, one transition from each substate
+        # is created; for transition to superstate, transition to the substate
         # with default transition is created
         sources = []
         if (src == "init" or src in stateflow.states.keys()):
@@ -190,55 +239,48 @@ def makePlannarized(tree):
                     hierarchy = 1 + state["parents"].index(src)
 
         if (dst in stateflow.states.keys()):
-            destination = dst
+            destinations = [(dst, label)]
         else:
-            child = tree.find('//state[@SSID="%s"]' % dst)
-            while (child.find("Children") != None):
-                # TODO: this would be better, but for some reason these xpath
-                # conditions won't work:
-                # childTrans = child.find('Children/transition/src[not(P)]')
-                for t in child.findall("Children/transition"):
-                    if (t.find('src/P[@Name="SSID"]') == None):
-                        childTrans = t
-                        break
-                childSSID = childTrans.findtext('dst/P[@Name="SSID"]')
-                child = child.find('Children/state[@SSID="%s"]' % childSSID)
-            destination = childSSID
+            parent = tree.find('//state[@SSID="%s"]' % dst)
+            destinations = getDefaultPaths(parent, [label])
 
         order = int(trans.findtext('P[@Name="executionOrder"]'))
 
         for source in sources:
-            stateflow.transitions.append({"ssid":trans.get("SSID"),
-            "label":label, "src":source, "dst":destination,
-            "hierarchy":hierarchy, "order":order})
+            for (destination, pathLabel) in destinations:
+                stateflow.transitions.append({"ssid":trans.get("SSID"),
+                "label":pathLabel, "src":source, "dst":destination,
+                "hierarchy":hierarchy, "order":order})
 
     return stateflow
 
-def writeStateActions(label, actionType, outfile):
-    if (label == None or label == ""):
-        return
-
-    if actionType == "entry:":
-        nextType = "during:"
-    elif actionType == "during:":
-        nextType = "exit:"
-    elif actionType == "exit:":
-        nextType = ""
+def getListOfStates(states, state_names):
+    if state_names == "id":
+        return ", ".join(statePrefix + ssid for ssid in states.keys())
+    elif state_names == "hierarchal":
+        return ", ".join(statePrefix + s["longName"] for s in states.values())
     else:
-        return
+        return ", ".join(statePrefix + s["label"]["name"] for s in states.values())
 
-    match = re.search(actionType + r"((.|\n)*)" + nextType, label)
-    if (match == None):
+def writeStateActions(labelDict, actionType, outfile):
+    if actionType != "en" and actionType != "du" and actionType != "ex":
+        raise ValueError('actionType should be either "en", "du" or "ex"')
+    
+    if actionType not in labelDict.keys():
         return
-    action = match.group(1).strip()
-    if (action != ""):
+    for action in labelDict[actionType]:
         outfile.write(" effect %s" % action)
         if (action[-1] != ";"):
             outfile.write(";")
 
-# TODO: actions probably don't have to be in curly brackets - correct this
+# TODO: actions don't have to be in curly brackets - correct this
 def writeTransitionActions(label, actionType, outfile):
     if (label == ""):
+        return
+    
+    if (isinstance(label, list)):
+        for l in label:
+            writeTransitionActions(l, actionType, outfile)
         return
 
     if (len(label.split("/")) == 1 and actionType == "action"):
@@ -262,12 +304,16 @@ def repareCondition(condition):
     else:
         return condition
 
-# TODO: conditions probably don't have to be in brackets - correct this
 def writeTransitionConditions(label, outfile, positive):
     if (label == ""):
         # TODO: if positive is false, there shoud be raised exception or
         # returned something that would indicate, what's happend (this means
         # that there is transition that cannot be taken)
+        return
+
+    if (isinstance(label, list)):
+        for l in label:
+            writeTransitionConditions(l, outfile, positive)
         return
 
     conditions = " and ".join(repareCondition(condition.strip()) for condition
@@ -316,17 +362,8 @@ def sf2dve(infile, outfile, disable_validation, state_names):
             print(e, file=sys.stderr)
 
     # states
-    outfile.write("\tstate ")
-    if state_names == "id":
-        outfile.write(", ".join(statePrefix + ssid for ssid
-                                in stateflow.states.keys()))
-    elif state_names == "hierarchal":
-        outfile.write(", ".join(statePrefix + state["longName"] for ssid, state 
-                                in stateflow.states.items()))
-    else:
-        outfile.write(", ".join(statePrefix + state["name"] for ssid, state
-                                in stateflow.states.items()))
-    outfile.write(";\n")
+    outfile.write("\tstate %s;\n" % getListOfStates(stateflow.states, 
+                                                    state_names))
 
     # initial state
     outfile.write("\tinit %sinit;\n" % statePrefix)
@@ -351,16 +388,18 @@ def sf2dve(infile, outfile, disable_validation, state_names):
                           stateflow.states[trans["dst"]]["longName"]))
         else:
             outfile.write("%s%s -> %s%s" % (statePrefix,
-                          stateflow.states[trans["src"]]["name"],
+                          stateflow.states[trans["src"]]["label"]["name"],
                           statePrefix,
-                          stateflow.states[trans["dst"]]["name"]))
+                          stateflow.states[trans["dst"]]["label"]["name"]))
 
         outfile.write((" {"))
         # conditions, TODO: condition actions should perhaps take place even
         #                   if condition is false - need to find out!
         writeTransitionConditions(trans["label"], outfile, True)
         try:
-            if (re.search("{(.*)}", trans["label"].split("/")[0]) != None):
+            if isinstance(trans["label"], list):
+                pass
+            elif (re.search("{(.*)}", trans["label"].split("/")[0]) != None):
                 raise notSupportedException("Condition action on transition "
                 "detected. They are not supported (yet), so this may cause "
                 "wrong behaviour. They will be considered as normal actions "
@@ -386,21 +425,22 @@ def sf2dve(infile, outfile, disable_validation, state_names):
 
         if (trans["src"] in stateflow.states.keys()):
             writeStateActions(stateflow.states[trans["src"]]["label"],
-                              "exit:", outfile)
+                              "ex", outfile)
 
         writeTransitionActions(trans["label"], "action", outfile)
 
         if (trans["dst"] in stateflow.states.keys()):
             writeStateActions(stateflow.states[trans["dst"]]["label"],
-                              "exit:", outfile)
+                              "ex", outfile)
 
         outfile.write(" }")
         outfile.write(",\n")
 
     # during actions (transitions)
     for stateSSID, state in stateflow.states.items():
-        if (re.search(r"during:((.|\n)*)exit:",
-                      state["label"]).group(1).strip() != ""):
+        if "du" not in state["label"].keys():
+            continue
+        for action in state["label"]["du"]:
             outfile.write("\t\t")
 
             # from -> to
@@ -411,8 +451,8 @@ def sf2dve(infile, outfile, disable_validation, state_names):
                 outfile.write("%s%s -> %s%s" % (statePrefix, state["longName"],
                                                 statePrefix, state["longName"]))
             else:
-                outfile.write("%s%s -> %s%s" % (statePrefix, state["name"],
-                                                statePrefix, state["name"]))              
+                outfile.write("%s%s -> %s%s" % (statePrefix, state["label"]["name"],
+                                                statePrefix, state["label"]["name"]))              
 
             outfile.write((" {"))
             # conditions
@@ -421,7 +461,7 @@ def sf2dve(infile, outfile, disable_validation, state_names):
                     writeTransitionConditions(trans["label"], outfile, False)
 
             # actions
-            writeStateActions(state["label"], "during:", outfile)
+            writeStateActions(state["label"], "du", outfile)
 
             outfile.write(" }")
             outfile.write(",\n")
@@ -439,9 +479,9 @@ def main():
                         "disables input validation", action="store_true",)
     parser.add_argument("-s", "--state-names", help="as name of state " +\
                         "will be used: id (unique but not human friendly), " +\
-                        "hierarchal name (should be unique but may be " +\
-                        "long) or original name (short but may not be " +\
-                        "unique - do not use as input for DiVinE)",
+                        "hierarchal name (longer, may not be unique) or " +\
+                        "original name (shorter, may not be unique). Use " +\
+                        "id (default) when generating input for DiVinE.",
                         choices=["id", "hierarchal", "name"], default="id")
     args = parser.parse_args()
     
