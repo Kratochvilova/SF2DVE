@@ -10,7 +10,7 @@ from ply import lex, yacc
 class notSupportedException(Exception): pass
 
 tokens = ("OPEN_BRACKET", "CLOSE_BRACKET", "OPEN_BRACE", "CLOSE_BRACE", 
-          "SLASH", "WHITESPACE", "ACTION_PART")
+          "SLASH", "WHITESPACE", "OTHER")
 
 t_OPEN_BRACKET = r"\["
 t_CLOSE_BRACKET = r"\]"
@@ -18,7 +18,7 @@ t_OPEN_BRACE = r"\{"
 t_CLOSE_BRACE = r"\}"
 t_SLASH = r"/"
 t_WHITESPACE = r"\s+"
-t_ACTION_PART = r"[^\[\]{}/\s]+"
+t_OTHER = r"[^\[\]{}/\s]+"
 
 def t_error(t):
     raise TypeError("Unknown text '%s'" % t.value)
@@ -60,22 +60,10 @@ def p_ws(p):
     """WS : WHITESPACE
           | EMPTY"""
 
-def p_actions(p):
-    "A : ACTION_PART A2"
-    if (p[2] == None):
-        p[0] = p[1]
-    else:
-        p[0] = p[1] + p[2]
-
-def p_whitespace(p):
-    "A : WHITESPACE A2"
-    if (p[2] == None):
-        p[0] = p[1]
-    else:
-        p[0] = p[1] + p[2]
-
-def p_slash(p):
-    "A : SLASH A2"
+def p_action_parts(p):
+    """A : OTHER A2
+         | WHITESPACE A2
+         | SLASH A2"""
     if (p[2] == None):
         p[0] = p[1]
     else:
@@ -101,14 +89,14 @@ def p_action(p):
     p[0] = p[1]
     
 def p_incorrect_c_action(p):
-    "INCORRECT_C_ACTION : ACTION_PART A2"
+    "INCORRECT_C_ACTION : OTHER A2"
     raise notSupportedException("Condition actions must be enclosed in curly "
                                 "brackets.")
 
 def p_error(p):
     if p is None:
         raise ValueError("Unknown error")
-    raise ValueError("Syntax error, line {0}: {1}".format(p.lineno + 1, p.type))
+    raise ValueError("Syntax error, line %s: %s" % (p.lineno + 1, p.type))
 
 lexer = lex.lex()
 parser = yacc.yacc()

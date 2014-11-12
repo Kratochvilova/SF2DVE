@@ -16,22 +16,29 @@ keywords = {
    "exit" : "EXIT"
 }
 
-tokens = (["AL_NUM", "NON_AL_NUM", "COLON"] + list(keywords.values()))
+tokens = (["WHITESPACE", "AL_NUM", "OTHER"] + list(keywords.values()))
+
+literals = ",;:"
+
+t_WHITESPACE = r"\s+"
 
 def t_AL_NUM(t):
     r"\w+"
     t.type = keywords.get(t.value, "AL_NUM")
     return t
 
-t_NON_AL_NUM = r"[^:\w]+"
-t_COLON = r":"
+t_OTHER = r"[^\s,;:\w]+"
 
 def t_error(t):
     raise TypeError("Unknown text '%s'" % t.value)
 
+def p_start(p):
+    "start : ws label"
+    p[0] = p[2]
+
 def p_label(p):
-    """LABEL : KEYWORDS ACTIONS LABEL
-             | EMPTY"""
+    """label : keywords actions label
+             | empty"""
     if len(p) == 4:
         if p[3] == None:
             p[0] = [[p[1], p[2]]]
@@ -41,19 +48,24 @@ def p_label(p):
         p[0] = p[1]
 
 def p_empty(p):
-    "EMPTY :"
+    "empty :"
     pass
 
+def p_ws(p):
+    """ws : WHITESPACE
+          | empty"""
+    p[0] = p[1]
+
 def p_keywords(p):
-    """KEYWORDS : KEYWORD NON_AL_NUM KEYWORDS
-                | KEYWORD COLON"""
-    if len(p) == 4:
+    """keywords : keyword separator keyword
+                | keyword ws ':'"""
+    if p[3] != ':':
         p[0] = [p[1]] + p[3]
     else:
         p[0] = [p[1]]
 
 def p_keyword(p):
-    """KEYWORD : EN
+    """keyword : EN
                | DU
                | EX
                | ENTRY
@@ -61,13 +73,24 @@ def p_keyword(p):
                | EXIT"""
     p[0] = p[1]
 
+def p_separator(p):
+    """separator : ws ',' ws
+                 | ws ';' ws"""
+    p[0] = p[2]
+
 def p_actions(p):
-    """ACTIONS : AL_NUM ACTIONS
-               | NON_AL_NUM ACTIONS
-               | COLON ACTIONS
+    """actions : AL_NUM actions
+               | WHITESPACE actions
+               | ',' actions
+               | ';' actions
+               | ':' actions
+               | OTHER actions
                | AL_NUM
-               | NON_AL_NUM
-               | COLON"""
+               | WHITESPACE
+               | ','
+               | ';'
+               | ':'
+               | OTHER"""
     if len(p) == 3:
         p[0] = p[1] + p[2]
     else:
@@ -83,4 +106,3 @@ parser = yacc.yacc()
 
 def parse(text, lexer=lexer):
     return parser.parse(text, lexer)
-    

@@ -21,15 +21,15 @@ class invalidInputException(Exception): pass
 # TODO: create some trivial XML schema
 # (there should be language setting (MATLAB or nothing) somewhere in
 # ModelInformation.Model.ConfigurationSet.Array.Object.Array.Object)   
-def checkInput(tree):
+def checkInput(stateflowEtree):
     # TODO: find out what to do if there is more charts or more machines
-    if (len(tree.findall("Stateflow/machine")) != 1):
+    if (len(stateflowEtree.findall("Stateflow/machine")) != 1):
         raise invalidInputException("invalid number of machines")
-    if (len(tree.findall("Stateflow/machine/Children/chart")) != 1):
+    if (len(stateflowEtree.findall("Stateflow/machine/Children/chart")) != 1):
         raise invalidInputException("invalid number of charts")
     
     # superfluous if there is validation against schema
-    for state in tree.findall("//state"):
+    for state in stateflowEtree.findall("//state"):
         if (state.find('P[@Name="labelString"]') == None or
             state.findtext('P[@Name="labelString"]') == ""):
             raise invalidInputException("state without label")
@@ -69,9 +69,9 @@ def repareCondition(condition):
         return condition
 
 def writeTransitionConditions(labelDict, outfile, positive):
-    if "condition" not in labelDict.keys():
+    if "conditions" not in labelDict.keys():
         # TODO: if positive is false, there shoud be raised exception or
-        # returned something that would indicate, what's happend (this means
+        # returned something that would indicate, what has happend (this means
         # that there is transition that cannot be taken)
         return
 
@@ -82,13 +82,10 @@ def writeTransitionConditions(labelDict, outfile, positive):
     if (labelDict["conditions"][-1] != ';'):
         outfile.write(';')
 
-def sf2dve(infile, outfile, disable_validation, state_names):
-    tree = etree.parse(infile)
-
-    if not disable_validation:
-        checkInput(tree)
-
-    stateflow = planarization.makePlanarized(tree)
+def sf2dve(infile, outfile, state_names):
+    stateflowEtree = etree.parse(infile)
+    checkInput(stateflowEtree)
+    stateflow = planarization.makePlanarized(stateflowEtree)
 
     # TODO: check syntax; check if stateflow is allways synchronous or
     #       something like that and if not, try to resolve this
@@ -104,14 +101,13 @@ def sf2dve(infile, outfile, disable_validation, state_names):
     # Like this, they are local. Should they be global?
     # When corrected, if notSupportedException is raised, it shouldn't be
     # catched here
-    for var in tree.findall("%s/data" % path):
+    for var in stateflowEtree.findall("%s/data" % path):
         try:
             varType = var.findtext('P[@Name="dataType"]')
             if (varType.startswith("uint")):
                 outfile.write("\tint %s;\n" % var.get("name"))
             if (varType == "boolean"):
                 outfile.write("\tbyte %s;\n" % var.get("name"))
-            else:
                 raise notSupportedException("Variable of unsupported type.")
         except notSupportedException as e:
             print(e, file=sys.stderr)
@@ -128,7 +124,8 @@ def sf2dve(infile, outfile, disable_validation, state_names):
     #       string before every effect or is it necessary to have only one?
     #       Can there be ';' after the last guards and effects?
     #       Can there be ',' after the last transition?
-    outfile.write("\ttrans\n")
+    if stateflow.transitions != []:
+        outfile.write("\ttrans\n")
     for trans in stateflow.transitions:
         outfile.write("\t\t")
 
@@ -148,35 +145,34 @@ def sf2dve(infile, outfile, disable_validation, state_names):
                           stateflow.states[trans["dst"]]["label"]["name"]))
 
         outfile.write((" {"))
-        # conditions, TODO: condition actions should perhaps take place even
-        #                   if condition is false - need to find out!
-        writeTransitionConditions(trans["label"], outfile, True)
+        writeTransitionConditions(trans["label"][0], outfile, True)
 
         # negated conditions of transitions with higher priority - this should
         # solve priorities in case of conflicting transitions
-        # (transition A is of higher priority then transition B if A has lower
-        # order or if orders are the same and A is higher in hierarchy)
         # TODO: comparing strings (trans2["order"] < trans["order"])?
         for trans2 in stateflow.transitions:
-            if (trans2["src"] == trans["src"] and
-                (trans2["order"] < trans["order"] or
-                (trans2["order"] == trans["order"] and
-                trans2["hierarchy"] > trans["hierarchy"]))):
-                writeTransitionConditions(trans2["label"], outfile, False)
+            if (trans2["src"] == trans["src"] and 
+            (trans2["hierarchy"] < trans["hierarchy"] or
+            (trans2["hierarchy"] == trans["hierarchy"] and
+            trans2["orderType"] < trans["orderType"]) or
+            (trans2["hierarchy"] == trans["hierarchy"] and
+            (trans2["orderType"] == trans["orderType"] and
+            trans2["order"] < trans["order"])))):
+                writeTransitionConditions(trans2["label"][0], outfile, False)
 
         # actions
-        writeTransitionActions(trans["label"], "condition", outfile)
+        writeTransitionActions(trans["label"][0], "condition", outfile)
 
         if (trans["src"] in stateflow.states.keys()):
             writeStateActions(stateflow.states[trans["src"]]["label"],
                               "ex", outfile)
-
-        writeTransitionActions(trans["label"], "action", outfile)
+            
+        writeTransitionActions(trans["label"][0], "action", outfile)
 
         if (trans["dst"] in stateflow.states.keys()):
             writeStateActions(stateflow.states[trans["dst"]]["label"],
-                              "ex", outfile)
-
+                              "en", outfile)
+        
         outfile.write(" }")
         outfile.write(",\n")
 
@@ -202,7 +198,7 @@ def sf2dve(infile, outfile, disable_validation, state_names):
             # conditions
             for trans in stateflow.transitions:
                 if (trans["src"] == stateSSID):
-                    writeTransitionConditions(trans["label"], outfile, False)
+                    writeTransitionConditions(trans["label"][0], outfile, False)
 
             # actions
             writeStateActions(state["label"], "du", outfile)
@@ -219,8 +215,6 @@ def main():
                         type=argparse.FileType('r'))
     parser.add_argument("output", help="output DVE file",
                         type=argparse.FileType('w'))
-    parser.add_argument("-d", "--disable-validation", help="partially " +\
-                        "disables input validation", action="store_true",)
     parser.add_argument("-s", "--state-names", help="as name of state " +\
                         "will be used: id (unique but not human friendly), " +\
                         "hierarchal name (longer, may not be unique) or " +\
@@ -230,7 +224,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        sf2dve(args.input, args.output, args.disable_validation, args.state_names)
+        sf2dve(args.input, args.output, args.state_names)
     except invalidInputException as e:
         print("Input is not valid stateflow: %s" % e, file=sys.stderr)
 
