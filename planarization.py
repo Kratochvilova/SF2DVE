@@ -6,7 +6,7 @@ Created on Thu Sep 25 13:21:52 2014
 @author: pavla
 """
 
-import re, state_parser, transition_parser
+import re, state_parser, transition_parser, action_parser, condition_parser
 from lxml import etree
 
 class notSupportedException(Exception): pass
@@ -37,6 +37,7 @@ class Planarized:
 class LabelCache:
     labels = {}
     stateflowEtree = None
+    newVariables = []
 
     def __init__(self, stateflowEtree):
         self.stateflowEtree = stateflowEtree
@@ -51,13 +52,16 @@ class LabelCache:
                 if label == None:
                     raise KeyError(key)
                 labelString = label.findtext(".")
-                self.labels[nodeType][key] = parseStateLabel(labelString)
+                (self.labels[nodeType][key], newVars) = parseStateLabel(labelString)
             if nodeType == "transition":
                 if label == None:
                     labelString = ""
                 else:
                     labelString = label.findtext(".")
-                self.labels[nodeType][key] = parseTransitionLabel(labelString)
+                (self.labels[nodeType][key], newVars) = parseTransitionLabel(labelString)
+            for (typeList, varList) in newVars:
+                for var in varList:
+                    self.newVariables.append([key, typeList] + var)
         return self.labels[nodeType][key]
     
     def getState(self, key):
@@ -65,6 +69,9 @@ class LabelCache:
         
     def getTransition(self, key):
         return self._get(key, "transition")
+    
+    def getNewVariables(self):
+        return self.newVariables
 
 def getStateName(label):
     if isinstance(label, etree._Element):
@@ -107,16 +114,19 @@ def parseStateLabel(label):
     labelDict["en"] = []
     labelDict["du"] = []
     labelDict["ex"] = []
+    newVariables = []
 
     parsedLabel = state_parser.parse(labelString.strip())
     if parsedLabel == None:
-        return labelDict
+        return (labelDict, newVariables)
     for (keywordPart, actionPart) in parsedLabel:
+        (parsedActionPart, newVars) = action_parser.parse(actionPart)
+        newVariables += newVars
         for (actionType, abbreviation) in actionTypes.items():
             if (actionType in keywordPart or abbreviation in keywordPart):
-                labelDict[abbreviation].append(actionPart)
-    
-    return labelDict
+                labelDict[abbreviation].append(parsedActionPart)
+
+    return (labelDict, newVariables)
 
 def parseTransitionLabel(label):
     if isinstance(label, etree._Element):
@@ -127,32 +137,41 @@ def parseTransitionLabel(label):
         raise TypeError()
 
     labelDict = {}
+    labelDict["conditions"] = ""
+    labelDict["ca"] = ""
+    labelDict["ta"] = ""
+    newVariables = []
 
     parsedLabel = transition_parser.parse(labelString.strip())
     if parsedLabel[0] != None:
-        labelDict["conditions"] = [parsedLabel[0]]
+        labelDict["conditions"] = condition_parser.parse(parsedLabel[0])
     if parsedLabel[1] != None:
-        labelDict["ca"] = [parsedLabel[1]]
+        (labelDict["ca"], newVars) = action_parser.parse(parsedLabel[1])
+        newVariables += newVars
     if parsedLabel[2] != None:
-        labelDict["ta"] = [parsedLabel[2]]
+        (labelDict["ta"], newVars) = action_parser.parse(parsedLabel[2])
+        newVariables += newVars
 
-    return labelDict
+    return (labelDict, newVariables)
 
 # for leaf state returns [(SSID of the state, labelDict)], otherwise
 # searches all default child transitions and recursively calls itself on their
 # destination and updated listOfLabels
-def getDefaultPaths(stateEl, listOfLabels, labelCache):
+def getDefaultPaths(stateEl, labelDict, labelCache):
     if stateEl.find("Children") == None:
-        return [(stateEl.get("SSID"), listOfLabels)]
+        return [(stateEl.get("SSID"), labelDict)]
     
     listOfPaths = []
     for trans in filter(lambda x:x.find('src/P[@Name="SSID"]') == None,
                         stateEl.findall('Children/transition')):
         dst = trans.findtext('dst/P[@Name="SSID"]')
-        listOfLabels.append(labelCache.getTransition(trans.get("SSID")))
-        
+        newLabelDict = labelDict
+        dstLabelDict = labelCache.getTransition(trans.get("SSID"))
+        newLabelDict["conditions"] = newLabelDict["conditions"] + " and " + dstLabelDict["conditions"]
+        newLabelDict["ca"] += dstLabelDict["ca"]
+        newLabelDict["ta"] += dstLabelDict["ta"]
         listOfPaths += getDefaultPaths(stateEl.find('Children/state[@SSID="%s"]' % dst), 
-                                       listOfLabels, labelCache)
+                                       newLabelDict, labelCache)
     return listOfPaths
 
 def makePlanarized(stateflowEtree):
@@ -224,10 +243,10 @@ def makePlanarized(stateflowEtree):
                     sources.append(stateSSID)
 
         if (dst in stateflow.states.keys()):
-            destinations = [(dst, [labelDict])]
+            destinations = [(dst, labelDict)]
         else:
             parent = stateflowEtree.find('//state[@SSID="%s"]' % dst)
-            destinations = getDefaultPaths(parent, [labelDict], labelCache)
+            destinations = getDefaultPaths(parent, labelDict, labelCache)
         
         # determining hierarchy, orderType and order        
         if src == "init":
@@ -252,9 +271,9 @@ def makePlanarized(stateflowEtree):
         order = int(trans.findtext('P[@Name="executionOrder"]'))
 
         for source in sources:
-            for (destination, listOfLabels) in destinations:
+            for (destination, tempLabelDict) in destinations:
                 stateflow.transitions.append({"ssid":trans.get("SSID"),
-                "label":listOfLabels, "src":source, "dst":destination,
+                "label":tempLabelDict, "src":source, "dst":destination,
                 "hierarchy":hierarchy, "orderType":orderType, "order":order})
 
     return stateflow

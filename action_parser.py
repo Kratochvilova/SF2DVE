@@ -17,19 +17,20 @@ keywords =  {
    "short" : "SHORT",
    "signed" : "SIGNED",
    "unsigned" : "UNSIGNED",
-   "void" : "VOID"
+   "const" : "CONST"
 }
 
-tokens = (["COMMENT", "RIGHT_ASSIGN", "LEFT_ASSIGN", "ADD_ASSIGN", 
-           "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN", 
-           "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP", "LEFT_OP", 
-           "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP", 
-           "NE_OP", "LBRACE", "RBRACE", "LBRACKET", "RBRACKET", "NUMBER",
-           "IDENTIFIER"] + list(keywords.values()))
+tokens = (["COMMENT", "COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN",
+           "ADD_ASSIGN", "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN",
+           "MOD_ASSIGN", "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP",
+           "LEFT_OP", "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP",
+           "EQ_OP", "NE_OP", "LBRACE", "RBRACE", "LBRACKET", "RBRACKET",
+           "NUMBER", "IDENTIFIER"] + list(keywords.values()))
 
-literals = ";,:=()&!~-+*/%<>^|?"
+literals = ";,:=()&!~-+*/%<>^|?@"
 
 t_ignore = " \t\n\r\f\v"
+t_COLON_ASSIGN = r":="
 t_RIGHT_ASSIGN = r">>="
 t_LEFT_ASSIGN = r"<<="
 t_ADD_ASSIGN = r"\+="
@@ -80,63 +81,60 @@ def p_empty(p):
 def p_compound_statement(p):
     """compound_statement : LBRACE RBRACE
                           | LBRACE block_items RBRACE"""
-    if len(p) == 3:
-        p[0] = p[1] + p[2]
-    else:
-        p[0] = p[1] + p[2] + p[3]
+    if len(p) == 4:
+        p[0] = p[2]
 
 def p_block_items(p):
     """block_items : declaration block_items
                    | statement block_items
                    | declaration
                    | statement"""
-    if len(p) == 2:
+    if p[1] != None and len(p) == 2:
         p[0] = p[1]
-    else:
-        p[0] = p[1] + ' ' + p[2]
+    if p[1] != None and len(p) == 3:
+            p[0] = p[1] + ' ' + p[2]
+    if p[1] == None and len(p) == 3:
+        p[0] = p[2]
 
 def p_declaration(p):
     """declaration : type_specifiers ';'
                    | type_specifiers init_declarator_list ';'"""
-    if len(p) == 2:
-        p[0] = p[1] + ' ' + p[2]
-    else:
-        p[0] = p[1] + ' ' + p[2] + ' ' + p[3]
+    if len(p) == 4:
         newVars.append((p[1], p[2]))
 
 def p_type_specifiers(p):
     """type_specifiers : type_specifier
                        | type_specifier type_specifiers """
     if len(p) == 2:
-        p[0] = p[1]
+        p[0] = [p[1]]
     else:
-        p[0] = p[1] + ' ' + p[2]
+        p[0] = [p[1]] + p[2]
 
 def p_type_specifier(p):
-    """type_specifier : VOID
-                      | CHAR
+    """type_specifier : CHAR
                       | SHORT
                       | INT
                       | LONG
                       | SIGNED
-                      | UNSIGNED"""
+                      | UNSIGNED
+                      | CONST"""
     p[0] = p[1]
 
 def p_init_declarator_list(p):
     """init_declarator_list : init_declarator
                             | init_declarator ',' init_declarator_list"""
     if len(p) == 2:
-        p[0] = p[1]
+        p[0] = [p[1]]
     else:
-        p[0] = p[1] + p[2] + ' ' + p[3]
+        p[0] = [p[1]] + p[3]
 
 def p_init_declarator(p):
     """init_declarator : declarator '=' initializer
                        | declarator"""
     if len(p) == 2:
-        p[0] = p[1]
+        p[0] = [p[1]]
     else:
-        p[0] = p[1] + ' ' + p[2] + ' ' + p[3]
+        p[0] = [p[1], p[3]]
 
 def p_declarator(p):
     """declarator : IDENTIFIER
@@ -170,23 +168,17 @@ def p_initializer_list(p):
         p[0] = p[1] + p[2] + ' ' + p[3]
 
 def p_statement(p):
-    """statement : labeled_statement
-                 | compound_statement
+    """statement : compound_statement
                  | expression_statement"""
-    p[0] = p[1]
-
-def p_labeled_statement(p):
-    """labeled_statement : IDENTIFIER ':' statement"""
-    p[0] = p[1] + p[2] + p[3]
-    
+    p[0] = p[1]    
 
 def p_expression_statement(p):
     """expression_statement : ';'
                             | expression ';'"""
-    if len(p) == 2:
-        p[0] = p[1]
-    else:
+    if len(p) == 3:
         p[0] = p[1] + p[2]
+    else:
+        p[0] = p[1]
 
 def p_expression(p):
     """expression : assignment_expression
@@ -194,14 +186,17 @@ def p_expression(p):
     if len(p) == 2:
         p[0] = p[1]
     else:
-        p[0] = p[1] + p[2] + ' ' + p[3]
+        p[0] = p[1] + ', ' + p[3]
 
 def p_assignment_expression(p):
-    """assignment_expression : logical_or_expression
-                | unary_expression assignment_operator assignment_expression"""
+    """assignment_expression : inc_dec_assignment
+            | logical_or_expression
+            | unary_expression assignment_operator assignment_expression"""
     if len(p) == 2:
         p[0] = p[1]
     elif p[2] == '=':
+        p[0] = p[1] + ' = ' + p[3]
+    elif p[2] == ':=':
         p[0] = p[1] + ' = ' + p[3]
     elif p[2] == "*=":
         p[0] = p[1] + ' = (' + p[1] + ') * (' + p[3] + ')'
@@ -221,10 +216,24 @@ def p_assignment_expression(p):
         p[0] = p[1] + ' = (' + p[1] + ') << (' + p[3] + ')'
     else:
         p[0] = p[1] + ' ' + p[2] + ' ' + p[3]
-    
+
+def p_inc_dec_assignment(p):
+    """inc_dec_assignment : INC_OP unary_expression
+                          | unary_expression INC_OP
+                          | DEC_OP unary_expression
+                          | unary_expression DEC_OP"""
+    if p[1] == "++":
+        p[0] = p[2] + " = " + p[2] + " + 1"
+    elif p[2] == "++":
+        p[0] = p[1] + " = " + p[1] + " + 1"
+    elif p[1] == "--":
+        p[0] = p[2] + " = " + p[2] + " - 1"
+    elif p[2] == "--":
+        p[0] = p[1] + " = " + p[1] + " - 1"
 
 def p_assignment_operator(p):
     """assignment_operator : '='
+                           | COLON_ASSIGN
                            | MUL_ASSIGN
                            | DIV_ASSIGN
                            | MOD_ASSIGN
@@ -239,7 +248,7 @@ def p_assignment_operator(p):
 
 def p_logical_or_expression(p):
     """logical_or_expression : logical_and_expression
-                             | logical_or_expression OR_OP logical_and_expression"""
+            | logical_or_expression OR_OP logical_and_expression"""
     if len(p) == 2:
         p[0] = p[1]
     else:
@@ -247,7 +256,7 @@ def p_logical_or_expression(p):
  
 def p_logical_and_expression(p):
     """logical_and_expression : inclusive_or_expression
-                              | logical_and_expression AND_OP inclusive_or_expression"""
+            | logical_and_expression AND_OP inclusive_or_expression"""
     if len(p) == 2:
         p[0] = p[1]
     else:
@@ -255,7 +264,7 @@ def p_logical_and_expression(p):
 
 def p_inclusive_or_expression(p):
     """inclusive_or_expression : exclusive_or_expression
-                               | inclusive_or_expression '|' exclusive_or_expression"""
+            | inclusive_or_expression '|' exclusive_or_expression"""
     if len(p) == 2:
         p[0] = p[1]
     else:
@@ -308,8 +317,8 @@ def p_shift_expression(p):
 
 def p_additive_expression(p):
     """additive_expression : multiplicative_expression
-                           | additive_expression '+' multiplicative_expression
-                           | additive_expression '-' multiplicative_expression"""
+            | additive_expression '+' multiplicative_expression
+            | additive_expression '-' multiplicative_expression"""
     if len(p) == 2:
         p[0] = p[1]
     else:
@@ -317,23 +326,26 @@ def p_additive_expression(p):
 
 def p_multiplicative_expression(p):
     """multiplicative_expression : unary_expression
-                                 | multiplicative_expression '*' unary_expression
-                                 | multiplicative_expression '/' unary_expression
-                                 | multiplicative_expression '%' unary_expression"""
+            | multiplicative_expression '*' unary_expression
+            | multiplicative_expression '/' unary_expression
+            | multiplicative_expression '%' unary_expression"""
     if len(p) == 2:
         p[0] = p[1]
     else:
         p[0] = p[1] + ' ' + p[2] + ' ' + p[3]
  
 def p_unary_expression(p):
-    """unary_expression : postfix_expression
-                        | INC_OP unary_expression
-                        | DEC_OP unary_expression
-                        | unary_operator unary_expression"""
+    """unary_expression : primary_expression
+                        | unary_operator unary_expression
+                        | primary_expression LBRACKET expression RBRACKET"""
     if len(p) == 2:
         p[0] = p[1]
-    else:
+    elif len(p) == 3 and p[1] == '+':
+        p[0] = p[2]
+    elif len(p) == 3:
         p[0] = p[1] + p[2]
+    else:
+        p[0] = p[1] + p[2] + p[3] + p[4]
 
 def p_unary_operator(p):
     """unary_operator : '+'
@@ -341,18 +353,6 @@ def p_unary_operator(p):
                       | '~'
                       | '!'"""
     p[0] = p[1]
-
-def p_postfix_expression(p):
-    """postfix_expression : primary_expression
-                          | postfix_expression LBRACKET expression RBRACKET
-                          | postfix_expression INC_OP
-                          | postfix_expression DEC_OP"""
-    if len(p) == 2:
-        p[0] = p[1]
-    elif len(p) == 3:
-        p[0] = p[1] + p[2]
-    else: 
-        p[0] = p[1] + p[2] + p[3] + p[4]
 
 def p_primary_expression(p):
     """primary_expression : IDENTIFIER
@@ -371,28 +371,7 @@ def p_error(p):
 lexer = lex.lex()
 parser = yacc.yacc()
 
-text = """
-//ok, this is really cute c program :D
-int i = 20, j, k = 30;
-char c = 4;
-int pole[8] = {0, 1, 2, 3, 4, 5, 6};
-
-pole[1] = i;
-/* I changed my mind, I don't wanna assign some weird number there
-pole[2] = j; */
-pole[3] *= (2 + k) / 4;
-pole[4] = c;
-pole[5] = c * k % j;
-pole[5] = 0 && 1;
-/*boooo*/
-"""
-
-#lexer.input(text)
-#while True:
-#    tok = lexer.token()
-#    if not tok: break      # No more input
-#    print(tok)
-
-print(parser.parse(text, lexer))
-
-print(newVars)
+def parse(text, lexer=lexer):
+    global newVars
+    newVars = []
+    return (parser.parse(text, lexer), newVars)

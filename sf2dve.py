@@ -42,25 +42,24 @@ def getListOfStates(states, state_names):
     else:
         return ", ".join(statePrefix + s["label"]["name"] for s in states.values())
 
-def writeStateActions(labelDict, actionType, outfile):
+def getStateActions(labelDict, actionType, outfile):
     if actionType != "en" and actionType != "du" and actionType != "ex":
         raise ValueError('actionType should be either "en", "du" or "ex"')
     
     if actionType not in labelDict.keys():
-        return
+        return ""
+    
+    actions = ""
     for action in labelDict[actionType]:
-        outfile.write(" effect %s" % action)
-        if (action[-1] != ";"):
-            outfile.write(";")
+        actions = actions + " " + action
+    return actions
 
 # TODO: actions don't have to be in curly brackets - correct this
-def writeTransitionActions(labelDict, actionType, outfile):
+def getTransitionActions(labelDict, actionType, outfile):
     if actionType not in labelDict.keys():
-        return
+        return ""
 
-    outfile.write(" effect %s" % labelDict[actionType])
-    if (labelDict[actionType][-1] != ";"):
-        outfile.write(";")
+    return labelDict[actionType]
 
 def repareCondition(condition):
     if (condition == ""):
@@ -74,25 +73,19 @@ def writeTransitionConditions(labelDict, outfile, positive):
         # returned something that would indicate, what has happend (this means
         # that there is transition that cannot be taken)
         return
+    
+    if labelDict["conditions"].strip() == "":
+        return
 
     if (positive):
-        outfile.write(" guard %s" % labelDict["conditions"])
+        outfile.write(" guard %s;" % labelDict["conditions"])
     else:
-        outfile.write(" guard not(%s)" % labelDict["conditions"])
-    if (labelDict["conditions"][-1] != ';'):
-        outfile.write(';')
+        outfile.write(" guard not(%s);" % labelDict["conditions"])
 
 def sf2dve(infile, outfile, state_names):
     stateflowEtree = etree.parse(infile)
     checkInput(stateflowEtree)
     stateflow = planarization.makePlanarized(stateflowEtree)
-
-    # TODO: check syntax; check if stateflow is allways synchronous or
-    #       something like that and if not, try to resolve this
-    outfile.write("system sync;\n\n")
-
-    # TODO: properties
-    outfile.write("property true\n\n")
 
     outfile.write("process %s%s {\n" % (processPrefix, stateflow.chartID))
 
@@ -145,7 +138,7 @@ def sf2dve(infile, outfile, state_names):
                           stateflow.states[trans["dst"]]["label"]["name"]))
 
         outfile.write((" {"))
-        writeTransitionConditions(trans["label"][0], outfile, True)
+        writeTransitionConditions(trans["label"], outfile, True)
 
         # negated conditions of transitions with higher priority - this should
         # solve priorities in case of conflicting transitions
@@ -158,20 +151,16 @@ def sf2dve(infile, outfile, state_names):
             (trans2["hierarchy"] == trans["hierarchy"] and
             (trans2["orderType"] == trans["orderType"] and
             trans2["order"] < trans["order"])))):
-                writeTransitionConditions(trans2["label"][0], outfile, False)
+                writeTransitionConditions(trans2["label"], outfile, False)
 
         # actions
-        writeTransitionActions(trans["label"][0], "condition", outfile)
-
-        if (trans["src"] in stateflow.states.keys()):
-            writeStateActions(stateflow.states[trans["src"]]["label"],
-                              "ex", outfile)
-            
-        writeTransitionActions(trans["label"][0], "action", outfile)
-
-        if (trans["dst"] in stateflow.states.keys()):
-            writeStateActions(stateflow.states[trans["dst"]]["label"],
-                              "en", outfile)
+        actions = getTransitionActions(trans["label"], "condition", outfile)
+        actions += getStateActions(stateflow.states[trans["src"]]["label"],
+                                   "ex", outfile)
+        actions += getTransitionActions(trans["label"], "action", outfile)
+        actions += getStateActions(stateflow.states[trans["dst"]]["label"],
+                                   "en", outfile)
+        outfile.write(" effect%s" % actions)
         
         outfile.write(" }")
         outfile.write(",\n")
@@ -198,15 +187,18 @@ def sf2dve(infile, outfile, state_names):
             # conditions
             for trans in stateflow.transitions:
                 if (trans["src"] == stateSSID):
-                    writeTransitionConditions(trans["label"][0], outfile, False)
+                    writeTransitionConditions(trans["label"], outfile, False)
 
             # actions
-            writeStateActions(state["label"], "du", outfile)
+            outfile.write(" effect%s" % getStateActions(state["label"], "du", outfile))
 
             outfile.write(" }")
             outfile.write(",\n")
 
-    outfile.write("}\n")
+    outfile.write("}\n\n")
+    
+    # TODO: this
+    outfile.write("system async;\n\n")
 
 def main():
     import argparse
