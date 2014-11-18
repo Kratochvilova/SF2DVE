@@ -1,3 +1,4 @@
+#!/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Thu Oct 23 15:51:31 2014
@@ -16,18 +17,21 @@ keywords = {
    "exit" : "EXIT"
 }
 
-tokens = (["WHITESPACE", "AL_NUM", "OTHER"] + list(keywords.values()))
-
+tokens = (["WHITESPACE", "NEWLINE", "AL_NUM", "OTHER"] + list(keywords.values()))
 literals = ",;:"
 
-t_WHITESPACE = r"\s+"
+t_WHITESPACE = r"[ \t\r\f\v]+"
+t_OTHER = r"[^\s,;:\w]+"
+
+def t_NEWLINE(t):
+    r"\n+"
+    t.lexer.lineno += len(t.value)
+    return t
 
 def t_AL_NUM(t):
     r"\w+"
     t.type = keywords.get(t.value, "AL_NUM")
     return t
-
-t_OTHER = r"[^\s,;:\w]+"
 
 def t_error(t):
     raise TypeError("Unknown text '%s'" % t.value)
@@ -40,7 +44,7 @@ def p_label(p):
     """label : keywords actions label
              | empty"""
     if len(p) == 4:
-        if p[3] == None:
+        if p[3] is None:
             p[0] = [[p[1], p[2]]]
         else:
             p[0] = [[p[1], p[2]]] + p[3]
@@ -53,6 +57,7 @@ def p_empty(p):
 
 def p_ws(p):
     """ws : WHITESPACE
+          | NEWLINE
           | empty"""
     p[0] = p[1]
 
@@ -81,12 +86,14 @@ def p_separator(p):
 def p_actions(p):
     """actions : AL_NUM actions
                | WHITESPACE actions
+               | NEWLINE actions
                | ',' actions
                | ';' actions
                | ':' actions
                | OTHER actions
                | AL_NUM
                | WHITESPACE
+               | NEWLINE
                | ','
                | ';'
                | ':'
@@ -99,7 +106,8 @@ def p_actions(p):
 def p_error(p):
     if p is None:
         raise ValueError("Unknown error")
-    raise ValueError("Syntax error, line {0}: {1}".format(p.lineno, p.type))
+    print(repr(p))
+    raise ValueError("Syntax error, line %s: %s" % (p.lineno, p.type))
 
 lexer = lex.lex()
 parser = yacc.yacc()

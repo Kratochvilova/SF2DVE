@@ -11,16 +11,17 @@ from ply import lex, yacc
 newVars = []
 
 keywords =  {
-   "char" : "CHAR",
-   "int" : "INT",
-   "long" : "LONG",
-   "short" : "SHORT",
-   "signed" : "SIGNED",
-   "unsigned" : "UNSIGNED",
-   "const" : "CONST"
+    "bool" : "BOOL",
+    "char" : "CHAR",
+    "int" : "INT",
+    "long" : "LONG",
+    "short" : "SHORT",
+    "signed" : "SIGNED",
+    "unsigned" : "UNSIGNED",
+    "const" : "CONST"
 }
 
-tokens = (["COMMENT", "COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN",
+tokens = (["NEWLINE", "COMMENT", "COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN",
            "ADD_ASSIGN", "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN",
            "MOD_ASSIGN", "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP",
            "LEFT_OP", "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP",
@@ -29,7 +30,7 @@ tokens = (["COMMENT", "COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN",
 
 literals = ";,:=()&!~-+*/%<>^|?@"
 
-t_ignore = " \t\n\r\f\v"
+t_ignore = " \t\r\f\v"
 t_COLON_ASSIGN = r":="
 t_RIGHT_ASSIGN = r">>="
 t_LEFT_ASSIGN = r"<<="
@@ -56,6 +57,10 @@ t_RBRACE = r"(}|%>)"
 t_LBRACKET = r"(\[|<:)"
 t_RBRACKET = r"(\]|:>)"
 t_NUMBER = r"[0-9]+"
+
+def t_NEWLINE(t):
+    r"\n+"
+    t.lexer.lineno += len(t.value)
 
 def t_COMMENT(t):
     r"(//.*)|(/\*(.|\n)*?\*/)"
@@ -89,11 +94,11 @@ def p_block_items(p):
                    | statement block_items
                    | declaration
                    | statement"""
-    if p[1] != None and len(p) == 2:
+    if p[1] is not None and len(p) == 2:
         p[0] = p[1]
-    if p[1] != None and len(p) == 3:
+    if p[1] is not None and len(p) == 3:
             p[0] = p[1] + ' ' + p[2]
-    if p[1] == None and len(p) == 3:
+    if p[1] is None and len(p) == 3:
         p[0] = p[2]
 
 def p_declaration(p):
@@ -111,7 +116,8 @@ def p_type_specifiers(p):
         p[0] = [p[1]] + p[2]
 
 def p_type_specifier(p):
-    """type_specifier : CHAR
+    """type_specifier : BOOL
+                      | CHAR
                       | SHORT
                       | INT
                       | LONG
@@ -176,9 +182,9 @@ def p_expression_statement(p):
     """expression_statement : ';'
                             | expression ';'"""
     if len(p) == 3:
-        p[0] = p[1] + p[2]
+        p[0] = p[1] + ','
     else:
-        p[0] = p[1]
+        p[0] = ','
 
 def p_expression(p):
     """expression : assignment_expression
@@ -352,7 +358,10 @@ def p_unary_operator(p):
                       | '-'
                       | '~'
                       | '!'"""
-    p[0] = p[1]
+    if p[1] == '-' or p[1] == '~':
+        p[0] = p[1]
+    if p[1] == '!':
+        p[0] = p[1]
 
 def p_primary_expression(p):
     """primary_expression : IDENTIFIER
@@ -366,7 +375,7 @@ def p_primary_expression(p):
 def p_error(p):
     if p is None:
         raise ValueError("Unknown error")
-    raise ValueError("Syntax error, line {0}: {1}".format(p.lineno, p.type))
+    raise ValueError("Syntax error, line %s: %s" % (p.lineno, p.type))
 
 lexer = lex.lex()
 parser = yacc.yacc()

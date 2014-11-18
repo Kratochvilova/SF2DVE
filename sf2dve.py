@@ -30,7 +30,7 @@ def checkInput(stateflowEtree):
     
     # superfluous if there is validation against schema
     for state in stateflowEtree.findall("//state"):
-        if (state.find('P[@Name="labelString"]') == None or
+        if (state.find('P[@Name="labelString"]') is None or
             state.findtext('P[@Name="labelString"]') == ""):
             raise invalidInputException("state without label")
 
@@ -41,46 +41,6 @@ def getListOfStates(states, state_names):
         return ", ".join(statePrefix + s["longName"] for s in states.values())
     else:
         return ", ".join(statePrefix + s["label"]["name"] for s in states.values())
-
-def getStateActions(labelDict, actionType, outfile):
-    if actionType != "en" and actionType != "du" and actionType != "ex":
-        raise ValueError('actionType should be either "en", "du" or "ex"')
-    
-    if actionType not in labelDict.keys():
-        return ""
-    
-    actions = ""
-    for action in labelDict[actionType]:
-        actions = actions + " " + action
-    return actions
-
-# TODO: actions don't have to be in curly brackets - correct this
-def getTransitionActions(labelDict, actionType, outfile):
-    if actionType not in labelDict.keys():
-        return ""
-
-    return labelDict[actionType]
-
-def repareCondition(condition):
-    if (condition == ""):
-        return "true"
-    else:
-        return condition
-
-def writeTransitionConditions(labelDict, outfile, positive):
-    if "conditions" not in labelDict.keys():
-        # TODO: if positive is false, there shoud be raised exception or
-        # returned something that would indicate, what has happend (this means
-        # that there is transition that cannot be taken)
-        return
-    
-    if labelDict["conditions"].strip() == "":
-        return
-
-    if (positive):
-        outfile.write(" guard %s;" % labelDict["conditions"])
-    else:
-        outfile.write(" guard not(%s);" % labelDict["conditions"])
 
 def sf2dve(infile, outfile, state_names):
     stateflowEtree = etree.parse(infile)
@@ -94,6 +54,7 @@ def sf2dve(infile, outfile, state_names):
     # Like this, they are local. Should they be global?
     # When corrected, if notSupportedException is raised, it shouldn't be
     # catched here
+    # add newVariables from declarations in labels
     for var in stateflowEtree.findall("%s/data" % path):
         try:
             varType = var.findtext('P[@Name="dataType"]')
@@ -106,21 +67,24 @@ def sf2dve(infile, outfile, state_names):
             print(e, file=sys.stderr)
 
     # states
-    outfile.write("\tstate %s;\n" % getListOfStates(stateflow.states, 
+    outfile.write("\tstate %s;\n" % getListOfStates(stateflow.states,
                                                     state_names))
 
     # initial state
     outfile.write("\tinit %sinit;\n" % statePrefix)
 
     # transitions (without loops representing during actions)
-    # TODO: can there be a "guard" string before every guard and "effect"
-    #       string before every effect or is it necessary to have only one?
-    #       Can there be ';' after the last guards and effects?
-    #       Can there be ',' after the last transition?
-    if stateflow.transitions != []:
-        outfile.write("\ttrans\n")
+    startTrans = False
+    endTrans = False
     for trans in stateflow.transitions:
-        outfile.write("\t\t")
+        if not startTrans:
+            startTrans = True
+            outfile.write("\ttrans\n")
+        if endTrans:
+            outfile.write(",\n\t\t")
+        else:            
+            endTrans = True
+            outfile.write("\t\t")
 
         # from -> to
         if state_names == "id":
@@ -138,11 +102,11 @@ def sf2dve(infile, outfile, state_names):
                           stateflow.states[trans["dst"]]["label"]["name"]))
 
         outfile.write((" {"))
-        writeTransitionConditions(trans["label"], outfile, True)
-
-        # negated conditions of transitions with higher priority - this should
-        # solve priorities in case of conflicting transitions
-        # TODO: comparing strings (trans2["order"] < trans["order"])?
+        
+        conditions = []
+        if trans["label"]["conditions"] != "":
+            conditions.append(trans["label"]["conditions"])
+        # negated conditions of transitions with higher priority
         for trans2 in stateflow.transitions:
             if (trans2["src"] == trans["src"] and 
             (trans2["hierarchy"] < trans["hierarchy"] or
@@ -151,53 +115,83 @@ def sf2dve(infile, outfile, state_names):
             (trans2["hierarchy"] == trans["hierarchy"] and
             (trans2["orderType"] == trans["orderType"] and
             trans2["order"] < trans["order"])))):
-                writeTransitionConditions(trans2["label"], outfile, False)
+                if trans2["label"]["conditions"] != "":
+                    conditions.append("not(" + trans2["label"]["conditions"] + ")")
+                else:
+                    conditions.append("false")
+        if conditions != []:
+            outfile.write(" guard %s;" % ", ".join(conditions))
 
         # actions
-        actions = getTransitionActions(trans["label"], "condition", outfile)
-        actions += getStateActions(stateflow.states[trans["src"]]["label"],
-                                   "ex", outfile)
-        actions += getTransitionActions(trans["label"], "action", outfile)
-        actions += getStateActions(stateflow.states[trans["dst"]]["label"],
-                                   "en", outfile)
-        outfile.write(" effect%s" % actions)
+        actions = ""
+        if trans["label"]["ca"] != "":
+            actions = trans["label"]["ca"]
+        for action in stateflow.states[trans["src"]]["label"]["ex"]:
+            actions = actions + " " + action
+        if trans["label"]["ta"] != "":
+            actions = actions + " " + trans["label"]["ta"]
+        for action in stateflow.states[trans["dst"]]["label"]["en"]:
+            actions = actions + " " + action
+        if actions != "":
+            if actions[-1] == ',':
+                actions = actions[:-1]
+            outfile.write(" effect %s;" % actions)
         
         outfile.write(" }")
-        outfile.write(",\n")
-
+        
     # during actions (transitions)
     for stateSSID, state in stateflow.states.items():
-        if "du" not in state["label"].keys():
-            continue
         for action in state["label"]["du"]:
-            outfile.write("\t\t")
-
+            if not startTrans:
+                startTrans = True
+                outfile.write("\ttrans\n")
+            if endTrans:
+                outfile.write(",\n\t\t")
+            else:            
+                endTrans = True
+                outfile.write("\t\t")
+                
             # from -> to
             if state_names == "id":
                 outfile.write("%s%s -> %s%s" % (statePrefix, stateSSID,
                                                 statePrefix, stateSSID))
             elif state_names == "hierarchal":
-                outfile.write("%s%s -> %s%s" % (statePrefix, state["longName"],
-                                                statePrefix, state["longName"]))
+                outfile.write("%s%s -> %s%s" % (statePrefix, 
+                                                state["longName"],
+                                                statePrefix, 
+                                                state["longName"]))
             else:
-                outfile.write("%s%s -> %s%s" % (statePrefix, state["label"]["name"],
-                                                statePrefix, state["label"]["name"]))              
+                outfile.write("%s%s -> %s%s" % (statePrefix, 
+                                                state["label"]["name"],
+                                                statePrefix, 
+                                                state["label"]["name"]))              
 
             outfile.write((" {"))
             # conditions
+            conditions = []
             for trans in stateflow.transitions:
                 if (trans["src"] == stateSSID):
-                    writeTransitionConditions(trans["label"], outfile, False)
+                    if trans2["label"]["conditions"] != "":
+                        conditions.append("not(" + trans["label"]["conditions"] + ")")
+                    else:
+                        conditions.append("false")
+            if conditions != []:
+                outfile.write(" guard %s;" % ", ".join(conditions))
 
             # actions
-            outfile.write(" effect%s" % getStateActions(state["label"], "du", outfile))
+            actions = ""
+            for action in state["label"]["du"]:
+                actions = actions + " " + action
+            if actions != "":
+                if actions[-1] == ',':
+                    actions = actions[:-1]
+                outfile.write(" effect %s;" % actions)
 
             outfile.write(" }")
-            outfile.write(",\n")
 
-    outfile.write("}\n\n")
+    outfile.write(";\n}\n\n")
     
-    # TODO: this
+    # TODO
     outfile.write("system async;\n\n")
 
 def main():

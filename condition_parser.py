@@ -8,13 +8,13 @@ Created on Sun Nov  9 09:35:20 2014
 
 from ply import lex, yacc
 
-tokens = ("COMMENT", "RIGHT_OP", "LEFT_OP", "AND_OP", "OR_OP", "LE_OP", 
-          "GE_OP", "EQ_OP", "NE_OP", "LBRACKET", "RBRACKET", "NUMBER",
+tokens = ("COMMENT", "NEWLINE", "RIGHT_OP", "LEFT_OP", "AND_OP", "OR_OP", 
+          "LE_OP", "GE_OP", "EQ_OP", "NE_OP", "LBRACKET", "RBRACKET", "NUMBER",
           "IDENTIFIER")
 
 literals = ";,:=()&!~-+*/%<>^|?"
 
-t_ignore = " \t\n\r\f\v"
+t_ignore = " \t\r\f\v"
 t_RIGHT_OP = r">>"
 t_LEFT_OP = r"<<"
 t_AND_OP = r"&&"
@@ -27,6 +27,10 @@ t_LBRACKET = r"(\[|<:)"
 t_RBRACKET = r"(\]|:>)"
 t_NUMBER = r"[0-9]+"
 t_IDENTIFIER = r"[a-zA-Z_][a-zA-Z_0-9]*"
+
+def t_NEWLINE(t):
+    r"\n+"
+    t.lexer.lineno += len(t.value)
 
 def t_COMMENT(t):
     r"(//.*)|(/\*(.|\n)*?\*/)"
@@ -150,7 +154,10 @@ def p_unary_operator(p):
                       | '-'
                       | '~'
                       | '!'"""
-    p[0] = p[1]
+    if p[1] == '-' or p[1] == '~':
+        p[0] = p[1]
+    if p[1] == '!':
+        p[0] = 'not'
 
 def p_primary_expression(p):
     """primary_expression : IDENTIFIER
@@ -164,7 +171,7 @@ def p_primary_expression(p):
 def p_error(p):
     if p is None:
         raise ValueError("Unknown error")
-    raise ValueError("Syntax error, line {0}: {1}".format(p.lineno, p.type))
+    raise ValueError("Syntax error, line %s: %s" % (p.lineno, p.type))
 
 lexer = lex.lex()
 parser = yacc.yacc()

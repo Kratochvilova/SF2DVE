@@ -29,14 +29,16 @@ class invalidInputException(Exception): pass
 #       - for  transition to a superstate there is a transition to every leaf
 #       substate, such that there is default transition to this substate and
 #       all its parents with lower hierarchy then the aforementioned superstate
+# newVariables - variables declared in labels
 class Planarized:
     chartID = 0
     states = {}
     transitions = []
-    
+    newVariables = []
+
 class LabelCache:
+    stateflowEtree = None    
     labels = {}
-    stateflowEtree = None
     newVariables = []
 
     def __init__(self, stateflowEtree):
@@ -46,22 +48,26 @@ class LabelCache:
         if nodeType not in self.labels:
             self.labels[nodeType] = {}
         if key not in self.labels[nodeType]:
-            label = self.stateflowEtree.find('//%s[@SSID="%s"]'
-            '/P[@Name="labelString"]' % (nodeType, key))
+            label = self.stateflowEtree.find('//%s[@SSID="%s"]/P[@Name="labelString"]' 
+                                             % (nodeType, key))
             if nodeType == "state":
-                if label == None:
+                if label is None:
                     raise KeyError(key)
                 labelString = label.findtext(".")
                 (self.labels[nodeType][key], newVars) = parseStateLabel(labelString)
+
             if nodeType == "transition":
-                if label == None:
+                if label is None:
                     labelString = ""
                 else:
                     labelString = label.findtext(".")
                 (self.labels[nodeType][key], newVars) = parseTransitionLabel(labelString)
+            
             for (typeList, varList) in newVars:
                 for var in varList:
-                    self.newVariables.append([key, typeList] + var)
+                    self.newVariables.append({"nodeType":nodeType, "key":key, 
+                                              "typeList":typeList, "var":var})
+
         return self.labels[nodeType][key]
     
     def getState(self, key):
@@ -82,12 +88,12 @@ def getStateName(label):
         raise TypeError()
 
     match = re.match(r"([^\n]*)/", labelString)
-    if (match != None):
+    if (match is not None):
         return match.group(1).strip()
     match = re.match(r"([^\n]*)\n", labelString)
-    if (match != None):
+    if (match is not None):
         return match.group(1).strip()
-    return labelString
+    return labelString.strip()
 
 # TODO: actions, other elements
 def parseStateLabel(label):
@@ -103,9 +109,9 @@ def parseStateLabel(label):
     # separating name and fixing rest of the label (puting "en:" on the 
     # begining if there is no action keyword)
     labelDict["name"] = getStateName(labelString)
-    labelString = labelString[len(labelDict["name"]):]
-    if labelString != "" and re.match(r"(entry|during|exit|en|du|ex)", 
-                                      labelString.strip()) == None:
+    labelString = labelString[len(labelDict["name"]):].strip()
+    if labelString != "" and re.match(r"(entry|during|exit|en|du|ex)",
+                                      labelString.strip()) is None:
         labelString = "en:" + labelString
 
     actionTypes = {"entry":"en", "during":"du", "exit":"ex"}
@@ -116,12 +122,13 @@ def parseStateLabel(label):
     labelDict["ex"] = []
     newVariables = []
 
-    parsedLabel = state_parser.parse(labelString.strip())
-    if parsedLabel == None:
+    parsedLabel = state_parser.parse(labelString)
+    if parsedLabel is None:
         return (labelDict, newVariables)
     for (keywordPart, actionPart) in parsedLabel:
         (parsedActionPart, newVars) = action_parser.parse(actionPart)
         newVariables += newVars
+        parsedActionPart = parsedActionPart.strip()
         for (actionType, abbreviation) in actionTypes.items():
             if (actionType in keywordPart or abbreviation in keywordPart):
                 labelDict[abbreviation].append(parsedActionPart)
@@ -143,26 +150,30 @@ def parseTransitionLabel(label):
     newVariables = []
 
     parsedLabel = transition_parser.parse(labelString.strip())
-    if parsedLabel[0] != None:
+    if parsedLabel[0] is not None and parsedLabel[0].strip() != "":
         labelDict["conditions"] = condition_parser.parse(parsedLabel[0])
-    if parsedLabel[1] != None:
+        labelDict["conditions"] = labelDict["conditions"].strip()
+    if parsedLabel[1] is not None and parsedLabel[1].strip() != "":
         (labelDict["ca"], newVars) = action_parser.parse(parsedLabel[1])
         newVariables += newVars
-    if parsedLabel[2] != None:
+        labelDict["ca"] = labelDict["ca"].strip()
+    if parsedLabel[2] is not None and parsedLabel[2].strip() != "":
         (labelDict["ta"], newVars) = action_parser.parse(parsedLabel[2])
         newVariables += newVars
+        labelDict["ta"] = labelDict["ta"].strip()
 
     return (labelDict, newVariables)
 
 # for leaf state returns [(SSID of the state, labelDict)], otherwise
 # searches all default child transitions and recursively calls itself on their
 # destination and updated listOfLabels
+# TODO: correct this, especially the " and " part
 def getDefaultPaths(stateEl, labelDict, labelCache):
-    if stateEl.find("Children") == None:
+    if stateEl.find("Children") is None:
         return [(stateEl.get("SSID"), labelDict)]
     
     listOfPaths = []
-    for trans in filter(lambda x:x.find('src/P[@Name="SSID"]') == None,
+    for trans in filter(lambda x:x.find('src/P[@Name="SSID"]') is None,
                         stateEl.findall('Children/transition')):
         dst = trans.findtext('dst/P[@Name="SSID"]')
         newLabelDict = labelDict
@@ -184,7 +195,7 @@ def makePlanarized(stateflowEtree):
 
     # storing leaf states of the state hierarchy (ssid, name, label, parents)
     # "init" is for future information whether there is default transition
-    for state in filter(lambda x:x.find("Children") == None, 
+    for state in filter(lambda x:x.find("Children") is None, 
                         stateflowEtree.findall("//state")):
         stateSSID = state.get("SSID")
         labelDict = labelCache.getState(stateSSID)
@@ -208,12 +219,13 @@ def makePlanarized(stateflowEtree):
     for trans in stateflowEtree.findall("//transition"):
         srcElement = trans.find('src/P[@Name="SSID"]')
         dst = trans.findtext('dst/P[@Name="SSID"]')
-        if (srcElement == None and dst in stateflow.states.keys()):
+        if (srcElement is None and dst in stateflow.states.keys()):
             stateflow.states[dst]["init"] = True
 
     # initial state
-    stateflow.states["init"] = {"longName":"init", "label":{"name":"init"}, 
-                                "parents":[], "init":True}
+    stateflow.states["init"] = {"longName":"init", "label":{"name":"init", 
+                                "en":"", "du":"", "ex":""}, "parents":[], 
+                                "init":True}
 
     # storing transitions (ssid, label, source, destination, execution order)
     # (ssid aren't unique anymore since there can be transition from superstate
@@ -222,7 +234,7 @@ def makePlanarized(stateflowEtree):
         labelDict = labelCache.getTransition(trans.get("SSID"))
 
         srcEl = trans.find('src/P[@Name="SSID"]')
-        if (srcEl == None):
+        if (srcEl is None):
             src = "init"
         else:
             src = srcEl.findtext(".")
@@ -275,5 +287,15 @@ def makePlanarized(stateflowEtree):
                 stateflow.transitions.append({"ssid":trans.get("SSID"),
                 "label":tempLabelDict, "src":source, "dst":destination,
                 "hierarchy":hierarchy, "orderType":orderType, "order":order})
+    
+    for var in labelCache.newVariables:
+        # TODO: types
+        if var["typeList"] == []:
+            pass
+        if len(var["var"]) == 1:
+            declaration = var["nodeType"] + var["key"] + var["var"][0]
+        else:
+            declaration = var["nodeType"] + var["key"] + var["var"][0] + "=" + var["var"][1]
+        stateflow.newVariables.append(declaration)
 
     return stateflow
