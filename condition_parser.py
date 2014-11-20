@@ -42,7 +42,10 @@ def t_error(t):
 def p_start(p):
     """start : empty
              | logical_or_expression"""
-    p[0] = p[1]
+    if p[1] is None:
+        p[0] = ""
+    else:
+        p[0] = p[1]
 
 def p_empty(p):
     "empty :"
@@ -157,7 +160,7 @@ def p_unary_operator(p):
     if p[1] == '-' or p[1] == '~':
         p[0] = p[1]
     if p[1] == '!':
-        p[0] = 'not'
+        p[0] = ' not '
 
 def p_primary_expression(p):
     """primary_expression : IDENTIFIER

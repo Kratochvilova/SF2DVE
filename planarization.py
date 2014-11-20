@@ -34,12 +34,12 @@ class Planarized:
     chartID = 0
     states = {}
     transitions = []
-    newVariables = []
+    newVariables = {}
 
 class LabelCache:
     stateflowEtree = None    
     labels = {}
-    newVariables = []
+    newVariables = {}
 
     def __init__(self, stateflowEtree):
         self.stateflowEtree = stateflowEtree
@@ -54,19 +54,16 @@ class LabelCache:
                 if label is None:
                     raise KeyError(key)
                 labelString = label.findtext(".")
-                (self.labels[nodeType][key], newVars) = parseStateLabel(labelString)
+                (self.labels[nodeType][key], newVars) = parseStateLabel(labelString, key)
 
             if nodeType == "transition":
                 if label is None:
                     labelString = ""
                 else:
                     labelString = label.findtext(".")
-                (self.labels[nodeType][key], newVars) = parseTransitionLabel(labelString)
+                (self.labels[nodeType][key], newVars) = parseTransitionLabel(labelString, key)
             
-            for (typeList, varList) in newVars:
-                for var in varList:
-                    self.newVariables.append({"nodeType":nodeType, "key":key, 
-                                              "typeList":typeList, "var":var})
+            self.newVariables.update(newVars)
 
         return self.labels[nodeType][key]
     
@@ -75,9 +72,6 @@ class LabelCache:
         
     def getTransition(self, key):
         return self._get(key, "transition")
-    
-    def getNewVariables(self):
-        return self.newVariables
 
 def getStateName(label):
     if isinstance(label, etree._Element):
@@ -96,7 +90,7 @@ def getStateName(label):
     return labelString.strip()
 
 # TODO: actions, other elements
-def parseStateLabel(label):
+def parseStateLabel(label, ssid):
     if isinstance(label, etree._Element):
         labelString = label.findtext(".")
     elif isinstance(label, str):
@@ -120,14 +114,16 @@ def parseStateLabel(label):
     labelDict["en"] = []
     labelDict["du"] = []
     labelDict["ex"] = []
-    newVariables = []
+    newVariables = {}
 
     parsedLabel = state_parser.parse(labelString)
     if parsedLabel is None:
         return (labelDict, newVariables)
     for (keywordPart, actionPart) in parsedLabel:
-        (parsedActionPart, newVars) = action_parser.parse(actionPart)
-        newVariables += newVars
+        (parsedActionPart, newVars) = action_parser.parse(actionPart, 
+                                                          "state_%s_" % ssid,
+                                                          newVariables)
+        newVariables.update(newVars)
         parsedActionPart = parsedActionPart.strip()
         for (actionType, abbreviation) in actionTypes.items():
             if (actionType in keywordPart or abbreviation in keywordPart):
@@ -135,7 +131,7 @@ def parseStateLabel(label):
 
     return (labelDict, newVariables)
 
-def parseTransitionLabel(label):
+def parseTransitionLabel(label, ssid):
     if isinstance(label, etree._Element):
         labelString = label.findtext(".")
     elif isinstance(label, str):
@@ -147,19 +143,23 @@ def parseTransitionLabel(label):
     labelDict["conditions"] = ""
     labelDict["ca"] = ""
     labelDict["ta"] = ""
-    newVariables = []
+    newVariables = {}
 
     parsedLabel = transition_parser.parse(labelString.strip())
     if parsedLabel[0] is not None and parsedLabel[0].strip() != "":
         labelDict["conditions"] = condition_parser.parse(parsedLabel[0])
         labelDict["conditions"] = labelDict["conditions"].strip()
     if parsedLabel[1] is not None and parsedLabel[1].strip() != "":
-        (labelDict["ca"], newVars) = action_parser.parse(parsedLabel[1])
-        newVariables += newVars
+        (labelDict["ca"], newVars) = action_parser.parse(parsedLabel[1], 
+                                                         "trans_%s_" % ssid,
+                                                         newVariables)
+        newVariables.update(newVars)
         labelDict["ca"] = labelDict["ca"].strip()
     if parsedLabel[2] is not None and parsedLabel[2].strip() != "":
-        (labelDict["ta"], newVars) = action_parser.parse(parsedLabel[2])
-        newVariables += newVars
+        (labelDict["ta"], newVars) = action_parser.parse(parsedLabel[2], 
+                                                         "trans_%s_" % ssid,
+                                                         newVariables)
+        newVariables.update(newVars)
         labelDict["ta"] = labelDict["ta"].strip()
 
     return (labelDict, newVariables)
@@ -178,9 +178,12 @@ def getDefaultPaths(stateEl, labelDict, labelCache):
         dst = trans.findtext('dst/P[@Name="SSID"]')
         newLabelDict = labelDict
         dstLabelDict = labelCache.getTransition(trans.get("SSID"))
-        newLabelDict["conditions"] = newLabelDict["conditions"] + " and " + dstLabelDict["conditions"]
-        newLabelDict["ca"] += dstLabelDict["ca"]
-        newLabelDict["ta"] += dstLabelDict["ta"]
+        if dstLabelDict["conditions"] != "":
+            newLabelDict["conditions"] += ", " + dstLabelDict["conditions"]
+        if dstLabelDict["ca"] != "":
+            newLabelDict["ca"] += ", " + dstLabelDict["ca"]
+        if dstLabelDict["ta"] != "":
+            newLabelDict["ta"] += ", " + dstLabelDict["ta"]
         listOfPaths += getDefaultPaths(stateEl.find('Children/state[@SSID="%s"]' % dst), 
                                        newLabelDict, labelCache)
     return listOfPaths
@@ -288,14 +291,6 @@ def makePlanarized(stateflowEtree):
                 "label":tempLabelDict, "src":source, "dst":destination,
                 "hierarchy":hierarchy, "orderType":orderType, "order":order})
     
-    for var in labelCache.newVariables:
-        # TODO: types
-        if var["typeList"] == []:
-            pass
-        if len(var["var"]) == 1:
-            declaration = var["nodeType"] + var["key"] + var["var"][0]
-        else:
-            declaration = var["nodeType"] + var["key"] + var["var"][0] + "=" + var["var"][1]
-        stateflow.newVariables.append(declaration)
-
+    stateflow.newVariables = labelCache.newVariables
+    
     return stateflow

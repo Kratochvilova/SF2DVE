@@ -8,7 +8,8 @@ Created on Sun Nov  9 09:35:20 2014
 
 from ply import lex, yacc
 
-newVars = []
+newVars = None
+prefix = None
 
 keywords =  {
     "bool" : "BOOL",
@@ -77,7 +78,10 @@ def t_error(t):
 def p_start(p):
     """start : empty
              | block_items"""
-    p[0] = p[1]
+    if p[1] is None:
+        p[0] = ""
+    else:
+        p[0] = p[1]
 
 def p_empty(p):
     "empty :"
@@ -97,7 +101,7 @@ def p_block_items(p):
     if p[1] is not None and len(p) == 2:
         p[0] = p[1]
     if p[1] is not None and len(p) == 3:
-            p[0] = p[1] + ' ' + p[2]
+        p[0] = p[1] + ' ' + p[2]
     if p[1] is None and len(p) == 3:
         p[0] = p[2]
 
@@ -105,7 +109,9 @@ def p_declaration(p):
     """declaration : type_specifiers ';'
                    | type_specifiers init_declarator_list ';'"""
     if len(p) == 4:
-        newVars.append((p[1], p[2]))
+        for i in range(len(p[1])):
+            for var in p[2]:
+                newVars[prefix + var[0]] = (p[1][i], var[1])
 
 def p_type_specifiers(p):
     """type_specifiers : type_specifier
@@ -138,9 +144,9 @@ def p_init_declarator(p):
     """init_declarator : declarator '=' initializer
                        | declarator"""
     if len(p) == 2:
-        p[0] = [p[1]]
+        p[0] = (p[1], None)
     else:
-        p[0] = [p[1], p[3]]
+        p[0] = (p[1], " = " + p[3])
 
 def p_declarator(p):
     """declarator : IDENTIFIER
@@ -148,6 +154,8 @@ def p_declarator(p):
                   | declarator LBRACKET assignment_expression RBRACKET
                   | declarator LBRACKET RBRACKET"""
     if len(p) == 2:
+        if prefix + p[1] in newVars:
+            p[1] = prefix + p[1]
         p[0] = p[1]
     elif len(p) == 4:
         p[0] = p[1] + p[2] + p[3]
@@ -159,10 +167,8 @@ def p_initializer(p):
                    | assignment_expression"""
     if len(p) == 2:
         p[0] = p[1]
-    elif len(p) == 4:
-        p[0] = p[1] + p[2] + p[3]
     else:
-        p[0] = p[1] + p[2] + p[4] 
+        p[0] = p[1] + p[2] + p[3]
 
 def p_initializer_list(p):
     """initializer_list : initializer
@@ -361,13 +367,15 @@ def p_unary_operator(p):
     if p[1] == '-' or p[1] == '~':
         p[0] = p[1]
     if p[1] == '!':
-        p[0] = p[1]
+        p[0] = ' not '
 
 def p_primary_expression(p):
     """primary_expression : IDENTIFIER
                           | NUMBER
                           | '(' expression ')'"""
     if len(p) == 2:
+        if prefix + p[1] in newVars:
+            p[1] = prefix + p[1]
         p[0] = p[1]
     else: 
         p[0] = p[1] + p[2] + p[3]
@@ -380,7 +388,11 @@ def p_error(p):
 lexer = lex.lex()
 parser = yacc.yacc()
 
-def parse(text, lexer=lexer):
+def parse(text, tempPrefix, variables=None, lexer=lexer):
     global newVars
-    newVars = []
+    global prefix
+    if variables is None:
+        variables = {}
+    newVars = variables
+    prefix = tempPrefix
     return (parser.parse(text, lexer), newVars)

@@ -58,14 +58,35 @@ def sf2dve(infile, outfile, state_names):
     for var in stateflowEtree.findall("%s/data" % path):
         try:
             varType = var.findtext('P[@Name="dataType"]')
-            if (varType.startswith("uint")):
+            if varType.startswith("int") or varType.startswith("uint"):
                 outfile.write("\tint %s;\n" % var.get("name"))
-            if (varType == "boolean"):
+            elif varType == "boolean":
                 outfile.write("\tbyte %s;\n" % var.get("name"))
-                raise notSupportedException("Variable of unsupported type.")
+            else:
+                raise notSupportedException("Variable of unsupported type: " +\
+                                            "%s %s" % (varType, var.get("name")))
         except notSupportedException as e:
             print(e, file=sys.stderr)
-
+    for varName, varDef in stateflow.newVariables.items():
+        try:
+            if varDef[0].startswith("int") or varType.startswith("uint"):
+                outfile.write("\tint %s" % varName)
+                if varDef[1] is None:
+                    outfile.write(";\n")
+                else:
+                    outfile.write(varDef[1] + ";\n")
+            elif varDef[0] == "boolean":
+                outfile.write("\tbyte %s" % var.get("name"))
+                if varDef[1] is None:
+                    outfile.write(";\n")
+                else:
+                    outfile.write(varDef[1] + ";\n")
+            else:
+                raise notSupportedException("Variable of unsupported type: " +\
+                                            "%s %s" % (varDef[0], varName))
+        except notSupportedException as e:
+            print(e, file=sys.stderr)
+    
     # states
     outfile.write("\tstate %s;\n" % getListOfStates(stateflow.states,
                                                     state_names))
@@ -75,16 +96,11 @@ def sf2dve(infile, outfile, state_names):
 
     # transitions (without loops representing during actions)
     startTrans = False
-    endTrans = False
     for trans in stateflow.transitions:
         if not startTrans:
             startTrans = True
             outfile.write("\ttrans\n")
-        if endTrans:
-            outfile.write(",\n\t\t")
-        else:            
-            endTrans = True
-            outfile.write("\t\t")
+        outfile.write("\t\t")
 
         # from -> to
         if state_names == "id":
@@ -123,21 +139,22 @@ def sf2dve(infile, outfile, state_names):
             outfile.write(" guard %s;" % ", ".join(conditions))
 
         # actions
-        actions = ""
+        actionList = []
         if trans["label"]["ca"] != "":
-            actions = trans["label"]["ca"]
+            actionList.append(trans["label"]["ca"])
         for action in stateflow.states[trans["src"]]["label"]["ex"]:
-            actions = actions + " " + action
+            actionList.append(action)
         if trans["label"]["ta"] != "":
-            actions = actions + " " + trans["label"]["ta"]
+            actionList.append(trans["label"]["ta"])
         for action in stateflow.states[trans["dst"]]["label"]["en"]:
-            actions = actions + " " + action
-        if actions != "":
-            if actions[-1] == ',':
-                actions = actions[:-1]
-            outfile.write(" effect %s;" % actions)
+            actionList.append(action)
+        actionString = " ".join(actionList)
+        if actionString != "":
+            if actionString[-1] == ',':
+                actionString = actionString[:-1]
+            outfile.write(" effect %s;" % actionString)
         
-        outfile.write(" }")
+        outfile.write(" }\n")
         
     # during actions (transitions)
     for stateSSID, state in stateflow.states.items():
@@ -145,11 +162,7 @@ def sf2dve(infile, outfile, state_names):
             if not startTrans:
                 startTrans = True
                 outfile.write("\ttrans\n")
-            if endTrans:
-                outfile.write(",\n\t\t")
-            else:            
-                endTrans = True
-                outfile.write("\t\t")
+            outfile.write("\t\t")
                 
             # from -> to
             if state_names == "id":
@@ -171,7 +184,7 @@ def sf2dve(infile, outfile, state_names):
             conditions = []
             for trans in stateflow.transitions:
                 if (trans["src"] == stateSSID):
-                    if trans2["label"]["conditions"] != "":
+                    if trans["label"]["conditions"] != "":
                         conditions.append("not(" + trans["label"]["conditions"] + ")")
                     else:
                         conditions.append("false")
@@ -179,17 +192,18 @@ def sf2dve(infile, outfile, state_names):
                 outfile.write(" guard %s;" % ", ".join(conditions))
 
             # actions
-            actions = ""
+            actionList = []
             for action in state["label"]["du"]:
-                actions = actions + " " + action
-            if actions != "":
-                if actions[-1] == ',':
-                    actions = actions[:-1]
-                outfile.write(" effect %s;" % actions)
+                actionList.append(action)
+            actionString = " ".join(actionList)
+            if actionString != "":
+                if actionString[-1] == ',':
+                    actionString = actionString[:-1]
+                outfile.write(" effect %s;" % actionString)
 
-            outfile.write(" }")
+            outfile.write(" }\n")
 
-    outfile.write(";\n}\n\n")
+    outfile.write("}\n\n")
     
     # TODO
     outfile.write("system async;\n\n")

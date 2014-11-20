@@ -49,7 +49,7 @@ def p_label(p):
         else:
             p[0] = [[p[1], p[2]]] + p[3]
     else:
-        p[0] = p[1]
+        p[0] = []
 
 def p_empty(p):
     "empty :"
@@ -59,7 +59,10 @@ def p_ws(p):
     """ws : WHITESPACE
           | NEWLINE
           | empty"""
-    p[0] = p[1]
+    if p[1] is None:
+        p[0] = ""
+    else:
+        p[0] = p[1]
 
 def p_keywords(p):
     """keywords : keyword separator keyword
