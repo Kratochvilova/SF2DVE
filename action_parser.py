@@ -10,8 +10,14 @@ from ply import lex, yacc
 
 newVars = None
 prefix = None
+typeConversions = {
+    "int":["int", "int16", "int32", "uint16", "uint32"],
+    "byte":["bool", "char", "int8"],
+    "modifiers":["long", "short", "signed", "unsigned"]
+}
 
 keywords =  {
+    "const" : "CONST",
     "bool" : "BOOL",
     "char" : "CHAR",
     "int" : "INT",
@@ -19,7 +25,12 @@ keywords =  {
     "short" : "SHORT",
     "signed" : "SIGNED",
     "unsigned" : "UNSIGNED",
-    "const" : "CONST"
+    "int8" : "INT8",
+    "int16" : "INT16",
+    "int32" : "INT32",
+    "uint8" : "UINT8",
+    "uint16" : "UINT16",
+    "uint32" : "UINT32"
 }
 
 tokens = (["NEWLINE", "COMMENT", "COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN",
@@ -109,9 +120,45 @@ def p_declaration(p):
     """declaration : type_specifiers ';'
                    | type_specifiers init_declarator_list ';'"""
     if len(p) == 4:
-        for i in range(len(p[1])):
-            for var in p[2]:
-                newVars[prefix + var[0]] = (p[1][i], var[1])
+        tempTypes = [None, None]
+        for varType in p[1]:
+            if varType == "const":
+                tempTypes[0] = "const"
+            
+            elif tempTypes[1] == None:
+                if (varType in typeConversions["int"] or
+                    varType in typeConversions["modifiers"]):
+                        tempTypes[1] = "int"
+                elif varType in typeConversions["byte"]:
+                    tempTypes[1] = varType
+                
+            elif (tempTypes[1] == "int" and 
+                  varType not in typeConversions["modifiers"]):
+                      raise ValueError("Error in declaration specifiers")
+                
+            elif tempTypes[1] == "bool":
+                raise ValueError("Error in declaration specifiers")
+                
+            elif tempTypes[1] == "byte":
+                if varType == "signed":
+                    pass
+                elif varType == "unsigned":
+                    tempTypes[1] = "int"
+                else:
+                    raise ValueError("Error in declaration specifiers")
+        
+        if tempTypes[1] == "int":
+            tempType = "int"
+        elif (tempTypes[1] == "bool" or 
+              tempTypes[1] == "char" or 
+              tempTypes[1] == "int8"):
+                  tempType = "byte"
+        if tempTypes[0] == "const":
+            tempType = "const " + tempType
+            
+        for varInit in p[2]:
+            newVars[prefix + varInit] = tempType
+
 
 def p_type_specifiers(p):
     """type_specifiers : type_specifier
@@ -119,17 +166,23 @@ def p_type_specifiers(p):
     if len(p) == 2:
         p[0] = [p[1]]
     else:
-        p[0] = [p[1]] + p[2]
+        p[0] = p[2] + [p[1]]
 
 def p_type_specifier(p):
-    """type_specifier : BOOL
+    """type_specifier : CONST
+                      | BOOL
                       | CHAR
                       | SHORT
                       | INT
                       | LONG
                       | SIGNED
                       | UNSIGNED
-                      | CONST"""
+                      | INT8
+                      | INT16
+                      | INT32
+                      | UINT8
+                      | UINT16
+                      | UINT32"""
     p[0] = p[1]
 
 def p_init_declarator_list(p):
@@ -144,9 +197,9 @@ def p_init_declarator(p):
     """init_declarator : declarator '=' initializer
                        | declarator"""
     if len(p) == 2:
-        p[0] = (p[1], None)
+        p[0] = p[1]
     else:
-        p[0] = (p[1], " = " + p[3])
+        p[0] = p[1] + " = " + p[3]
 
 def p_declarator(p):
     """declarator : IDENTIFIER

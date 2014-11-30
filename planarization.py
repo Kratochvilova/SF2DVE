@@ -14,7 +14,7 @@ class notSupportedException(Exception): pass
 class invalidInputException(Exception): pass
 
 # planarized stateflow
-# states - leaf states of the state hierarchy - ssid, hierarchal name, label
+# states - leaf states of the state hierarchy - ssid, hierarchical name, label
 #       (in general format {"name":name, "en":entry actions, "du":during
 #       actions, "ex":exit actions}), parents, init (information whether there
 #       is default transition to this state)

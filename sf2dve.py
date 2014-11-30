@@ -37,7 +37,7 @@ def checkInput(stateflowEtree):
 def getListOfStates(states, state_names):
     if state_names == "id":
         return ", ".join(statePrefix + ssid for ssid in states.keys())
-    elif state_names == "hierarchal":
+    elif state_names == "hierarchical":
         return ", ".join(statePrefix + s["longName"] for s in states.values())
     else:
         return ", ".join(statePrefix + s["label"]["name"] for s in states.values())
@@ -50,42 +50,32 @@ def sf2dve(infile, outfile, state_names):
     outfile.write("process %s%s {\n" % (processPrefix, stateflow.chartID))
 
     # variables
-    # TODO: correct this and look for other types
     # Like this, they are local. Should they be global?
-    # When corrected, if notSupportedException is raised, it shouldn't be
-    # catched here
-    # add newVariables from declarations in labels
+    typeConversions = {"int":["int16", "int32", "uint8", "uint16", "uint32", 
+                              "int"],
+                       "byte":["int8", "boolean"]}
+    variables = {"int":[], "byte":[]}
+    
     for var in stateflowEtree.findall("%s/data" % path):
-        try:
-            varType = var.findtext('P[@Name="dataType"]')
-            if varType.startswith("int") or varType.startswith("uint"):
-                outfile.write("\tint %s;\n" % var.get("name"))
-            elif varType == "boolean":
-                outfile.write("\tbyte %s;\n" % var.get("name"))
-            else:
-                raise notSupportedException("Variable of unsupported type: " +\
-                                            "%s %s" % (varType, var.get("name")))
-        except notSupportedException as e:
-            print(e, file=sys.stderr)
-    for varName, varDef in stateflow.newVariables.items():
-        try:
-            if varDef[0].startswith("int") or varType.startswith("uint"):
-                outfile.write("\tint %s" % varName)
-                if varDef[1] is None:
-                    outfile.write(";\n")
-                else:
-                    outfile.write(varDef[1] + ";\n")
-            elif varDef[0] == "boolean":
-                outfile.write("\tbyte %s" % var.get("name"))
-                if varDef[1] is None:
-                    outfile.write(";\n")
-                else:
-                    outfile.write(varDef[1] + ";\n")
-            else:
-                raise notSupportedException("Variable of unsupported type: " +\
-                                            "%s %s" % (varDef[0], varName))
-        except notSupportedException as e:
-            print(e, file=sys.stderr)
+        varType = var.findtext('P[@Name="dataType"]')
+        if varType in typeConversions["int"]:
+            variables["int"].append(var.get("name"))
+        elif varType in typeConversions["byte"]:
+            variables["byte"].append(var.get("name"))
+        else:
+            raise notSupportedException("Variable of unsupported type: " +\
+                                        "%s %s" % (varType, var.get("name")))
+                                        
+    for varName, varType in stateflow.newVariables.items():
+        if varType == "int":
+            variables["int"].append(varName)
+        else:
+            variables["byte"].append(varName)
+    
+    if variables["int"] != []:
+        outfile.write("\tint %s;\n" % ", ".join(variables["int"]))
+    if variables["byte"] != []:
+        outfile.write("\tbyte %s;\n" % ", ".join(variables["byte"]))
     
     # states
     outfile.write("\tstate %s;\n" % getListOfStates(stateflow.states,
@@ -106,7 +96,7 @@ def sf2dve(infile, outfile, state_names):
         if state_names == "id":
             outfile.write("%s%s -> %s%s" % (statePrefix, trans["src"],
                                             statePrefix, trans["dst"]))
-        elif state_names == "hierarchal":
+        elif state_names == "hierarchical":
             outfile.write("%s%s -> %s%s" % (statePrefix,
                           stateflow.states[trans["src"]]["longName"],
                           statePrefix,
@@ -168,7 +158,7 @@ def sf2dve(infile, outfile, state_names):
             if state_names == "id":
                 outfile.write("%s%s -> %s%s" % (statePrefix, stateSSID,
                                                 statePrefix, stateSSID))
-            elif state_names == "hierarchal":
+            elif state_names == "hierarchical":
                 outfile.write("%s%s -> %s%s" % (statePrefix, 
                                                 state["longName"],
                                                 statePrefix, 
@@ -217,16 +207,20 @@ def main():
                         type=argparse.FileType('w'))
     parser.add_argument("-s", "--state-names", help="as name of state " +\
                         "will be used: id (unique but not human friendly), " +\
-                        "hierarchal name (longer, may not be unique) or " +\
+                        "hierarchical name (longer, may not be unique) or " +\
                         "original name (shorter, may not be unique). Use " +\
                         "id (default) when generating input for DiVinE.",
-                        choices=["id", "hierarchal", "name"], default="id")
+                        choices=["id", "hierarchical", "name"], default="id")
     args = parser.parse_args()
     
     try:
         sf2dve(args.input, args.output, args.state_names)
     except invalidInputException as e:
         print("Input is not valid stateflow: %s" % e, file=sys.stderr)
+        return
+    except notSupportedException as e:
+        print("Following is not supported: %s" % e, file=sys.stderr)
+        return
 
 if __name__ == "__main__":
     sys.exit(main())
