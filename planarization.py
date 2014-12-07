@@ -8,10 +8,7 @@ Created on Thu Sep 25 13:21:52 2014
 
 import re, state_parser, transition_parser, action_parser, condition_parser
 from lxml import etree
-
-class notSupportedException(Exception): pass
-
-class invalidInputException(Exception): pass
+from sf2dve import getDataVariable
 
 # planarized stateflow
 # states - leaf states of the state hierarchy - ssid, hierarchical name, label
@@ -30,25 +27,27 @@ class invalidInputException(Exception): pass
 #       substate, such that there is default transition to this substate and
 #       all its parents with lower hierarchy then the aforementioned superstate
 # newVariables - variables declared in labels
-class Planarized:
+class PlanarizedChart:
     chartID = 0
+    chartName = ""
     states = {}
     transitions = []
-    newVariables = {}
+    labelVariables = {}
+    dataVariables = []
 
 class LabelCache:
-    stateflowEtree = None    
+    chart = None    
     labels = {}
-    newVariables = {}
+    labelVariables = {}
 
-    def __init__(self, stateflowEtree):
-        self.stateflowEtree = stateflowEtree
+    def __init__(self, chart):
+        self.chart = chart
     
     def _get(self, key, nodeType):
         if nodeType not in self.labels:
             self.labels[nodeType] = {}
         if key not in self.labels[nodeType]:
-            label = self.stateflowEtree.find('//%s[@SSID="%s"]/P[@Name="labelString"]' 
+            label = self.chart.find('.//%s[@SSID="%s"]/P[@Name="labelString"]' 
                                              % (nodeType, key))
             if nodeType == "state":
                 if label is None:
@@ -63,7 +62,7 @@ class LabelCache:
                     labelString = label.findtext(".")
                 (self.labels[nodeType][key], newVars) = parseTransitionLabel(labelString, key)
             
-            self.newVariables.update(newVars)
+            self.labelVariables.update(newVars)
 
         return self.labels[nodeType][key]
     
@@ -188,18 +187,20 @@ def getDefaultPaths(stateEl, labelDict, labelCache):
                                        newLabelDict, labelCache)
     return listOfPaths
 
-def makePlanarized(stateflowEtree):
-    stateflow = Planarized()
-    labelCache = LabelCache(stateflowEtree)
+def makePlanarized(chart):
+    planarizedChart = PlanarizedChart()
+    labelCache = LabelCache(chart)
 
-    # TODO: find out what is chart and machine (if any of them correspond with
-    #       process in DVE and what to do it there are more of them)
-    stateflow.chartID = stateflowEtree.find("Stateflow/machine/Children/chart").get("id")        
+    planarizedChart.chartID = chart.get("id")        
+    planarizedChart.chartName = chart.findtext('P[@Name="name"]')
 
+    for varEl in chart.findall(".//data"):
+        planarizedChart.dataVariables.append(getDataVariable(varEl))
+    
     # storing leaf states of the state hierarchy (ssid, name, label, parents)
     # "init" is for future information whether there is default transition
     for state in filter(lambda x:x.find("Children") is None, 
-                        stateflowEtree.findall("//state")):
+                        chart.findall(".//state")):
         stateSSID = state.get("SSID")
         labelDict = labelCache.getState(stateSSID)
         
@@ -215,25 +216,32 @@ def makePlanarized(stateflowEtree):
             labelDict["ex"] = labelDict["ex"] + parentDict["ex"]
             parent = parent.getparent().getparent()
         
-        stateflow.states[stateSSID] = {"longName":longName, 
-        "label":labelDict, "parents":parents, "init":False}
+        planarizedChart.states[stateSSID] = {
+            "longName":longName, 
+            "label":labelDict, 
+            "parents":parents, 
+            "init":False
+        }
 
     # setting "init" - more states can have "init" set on True
-    for trans in stateflowEtree.findall("//transition"):
+    for trans in chart.findall(".//transition"):
         srcElement = trans.find('src/P[@Name="SSID"]')
         dst = trans.findtext('dst/P[@Name="SSID"]')
-        if (srcElement is None and dst in stateflow.states.keys()):
-            stateflow.states[dst]["init"] = True
+        if (srcElement is None and dst in planarizedChart.states.keys()):
+            planarizedChart.states[dst]["init"] = True
 
     # initial state
-    stateflow.states["init"] = {"longName":"init", "label":{"name":"init", 
-                                "en":"", "du":"", "ex":""}, "parents":[], 
-                                "init":True}
+    planarizedChart.states["init"] = {
+        "longName":"init", 
+        "label":{"name":"init", "en":"", "du":"", "ex":""}, 
+        "parents":[], 
+        "init":True
+    }
 
     # storing transitions (ssid, label, source, destination, execution order)
     # (ssid aren't unique anymore since there can be transition from superstate
     # and hence several transitions with the same ssid are created)
-    for trans in stateflowEtree.findall("//transition"):
+    for trans in chart.findall(".//transition"):
         labelDict = labelCache.getTransition(trans.get("SSID"))
 
         srcEl = trans.find('src/P[@Name="SSID"]')
@@ -250,17 +258,17 @@ def makePlanarized(stateflowEtree):
         # is created; for transition to superstate, transition to the substate
         # with default transition is created
         sources = []
-        if (src == "init" or src in stateflow.states.keys()):
+        if (src == "init" or src in planarizedChart.states.keys()):
             sources.append(src)
         else:
-            for stateSSID, state in stateflow.states.items():
+            for stateSSID, state in planarizedChart.states.items():
                 if (src in state["parents"]):
                     sources.append(stateSSID)
 
-        if (dst in stateflow.states.keys()):
+        if (dst in planarizedChart.states.keys()):
             destinations = [(dst, labelDict)]
         else:
-            parent = stateflowEtree.find('//state[@SSID="%s"]' % dst)
+            parent = chart.find('.//state[@SSID="%s"]' % dst)
             destinations = getDefaultPaths(parent, labelDict, labelCache)
         
         # determining hierarchy, orderType and order        
@@ -269,14 +277,14 @@ def makePlanarized(stateflowEtree):
             orderType = 0
         else:
             hierarchy = 1
-            srcState = stateflowEtree.find('//state[@SSID="%s"]' % src)
+            srcState = chart.find('.//state[@SSID="%s"]' % src)
             srcParent = srcState.getparent().getparent()
             while srcParent.tag != "chart":
                 hierarchy += 1
                 srcParent = srcParent.getparent().getparent()
                 
             orderType = 2
-            dstState = stateflowEtree.find('//state[@SSID="%s"]' % dst)
+            dstState = chart.find('.//state[@SSID="%s"]' % dst)
             dstParent = dstState.getparent().getparent()
             while dstParent.tag != "chart":
                 if dstParent.get("SSID") == src:
@@ -287,10 +295,10 @@ def makePlanarized(stateflowEtree):
 
         for source in sources:
             for (destination, tempLabelDict) in destinations:
-                stateflow.transitions.append({"ssid":trans.get("SSID"),
+                planarizedChart.transitions.append({"ssid":trans.get("SSID"),
                 "label":tempLabelDict, "src":source, "dst":destination,
                 "hierarchy":hierarchy, "orderType":orderType, "order":order})
     
-    stateflow.newVariables = labelCache.newVariables
+    planarizedChart.labelVariables = labelCache.labelVariables
     
-    return stateflow
+    return planarizedChart
