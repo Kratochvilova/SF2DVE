@@ -29,7 +29,7 @@ def checkInput(stateflowEtree):
 
 def getListOfStates(states, state_names):
     if state_names == "id":
-        return ", ".join(statePrefix + ssid for ssid in states.keys())
+        return ", ".join(statePrefix + ssid for ssid in states)
     elif state_names == "hierarchical":
         return ", ".join(statePrefix + s["longName"] for s in states.values())
     else:
@@ -137,8 +137,8 @@ def writeProcess(chart, outfile, state_names):
             actionList.append(trans["label"]["ca"])
         for action in chart.states[trans["src"]]["label"]["ex"]:
             actionList.append(action)
-        if trans["label"]["ta"] != "":
-            actionList.append(trans["label"]["ta"])
+        if trans["label"]["ta"] != []:
+            actionList += trans["label"]["ta"]
         for action in chart.states[trans["dst"]]["label"]["en"]:
             actionList.append(action)
         actionString = " ".join(actionList)
