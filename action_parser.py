@@ -120,45 +120,42 @@ def p_declaration(p):
     """declaration : type_specifiers ';'
                    | type_specifiers init_declarator_list ';'"""
     if len(p) == 4:
-        tempTypes = [None, None]
+        const = False
+        tempType = None
         for varType in p[1]:
             if varType == "const":
-                tempTypes[0] = "const"
-            
-            elif tempTypes[1] == None:
+                const = True
+
+            elif tempType == None:
                 if (varType in typeConversions["int"] or
                     varType in typeConversions["modifiers"]):
-                        tempTypes[1] = "int"
+                        tempType = "int"
                 elif varType in typeConversions["byte"]:
-                    tempTypes[1] = varType
+                    tempType = varType
                 
-            elif (tempTypes[1] == "int" and 
+            elif (tempType == "int" and 
                   varType not in typeConversions["modifiers"]):
                       raise ValueError("Error in declaration specifiers")
                 
-            elif tempTypes[1] == "bool":
+            elif tempType == "bool":
                 raise ValueError("Error in declaration specifiers")
                 
-            elif tempTypes[1] == "byte":
+            elif tempType == "byte":
                 if varType == "signed":
                     pass
                 elif varType == "unsigned":
-                    tempTypes[1] = "int"
+                    tempType = "int"
                 else:
                     raise ValueError("Error in declaration specifiers")
         
-        if tempTypes[1] == "int":
-            tempType = "int"
-        elif (tempTypes[1] == "bool" or 
-              tempTypes[1] == "char" or 
-              tempTypes[1] == "int8"):
-                  tempType = "byte"
-        if tempTypes[0] == "const":
-            tempType = "const " + tempType
+        if tempType == "int":
+            finalType = "int"
+        elif (tempType == "bool" or tempType == "char" or tempType == "int8"):
+            finalType = "byte"
             
         for varInit in p[2]:
-            newVars[prefix + varInit] = tempType
-
+            newVars[prefix + varInit[0]] = {"type":finalType, "const":const,
+                                        "init":varInit[1], "scope":"label"}
 
 def p_type_specifiers(p):
     """type_specifiers : type_specifier
@@ -197,9 +194,9 @@ def p_init_declarator(p):
     """init_declarator : declarator '=' initializer
                        | declarator"""
     if len(p) == 2:
-        p[0] = p[1]
+        p[0] = (p[1], None)
     else:
-        p[0] = p[1] + " = " + p[3]
+        p[0] = (p[1], p[3])
 
 def p_declarator(p):
     """declarator : IDENTIFIER

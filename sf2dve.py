@@ -13,15 +13,16 @@ from exceptions import notSupportedException, invalidInputException
 processPrefix = "process_"
 statePrefix = "state_"
 
-# TODO: create some trivial XML schema
-# (there should be language setting (MATLAB or nothing) somewhere in
-# ModelInformation.Model.ConfigurationSet.Array.Object.Array.Object)   
 def checkInput(stateflowEtree):
-    # TODO: find out what to do if there is more charts or more machines
+    for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
+        actionLanguageSetting = chart.find('P[@Name="actionLanguage"]')
+        if (actionLanguageSetting != None and 
+            actionLanguageSetting.findText(".") == "2"):
+            raise invalidInputException("invalid action language")
+    
     if (len(stateflowEtree.findall("Stateflow/machine")) != 1):
         raise invalidInputException("invalid number of machines")
     
-    # superfluous if there is validation against schema
     for state in stateflowEtree.findall("//state"):
         if (state.find('P[@Name="labelString"]') is None or
             state.findtext('P[@Name="labelString"]') == ""):
@@ -39,53 +40,66 @@ def getDataVariable(varEl):
     typeConversions = {"int":["int16", "int32", "uint8", "uint16", "uint32", 
                               "int"],
                        "byte":["int8", "boolean"]}
-                       
-    varScope = varEl.findtext('P[@Name="scope"]')
-    if varScope == "LOCAL_DATA" or varScope == "OUTPUT_DATA":
-        var = ""
-    elif varScope == "CONSTANT":
-        var = "const "
-    elif varScope == "INPUT_DATA":
-        var = "input "
-    else:
-        raise notSupportedException("Variable of unsupported scope: %s %s" 
-                                    % (varScope, varEl.get("name")))
-    
+
+    varDef = {}
+
     varType = varEl.findtext('P[@Name="dataType"]')
     if varType in typeConversions["int"]:
-        var += "int "
+        varDef["type"] = "int"
     elif varType in typeConversions["byte"]:
-        var += "byte "
+        varDef["type"] = "byte"
     else:
         raise notSupportedException("Variable of unsupported type: %s %s" 
                                     % (varType, varEl.get("name")))
-    
-    var += varEl.get("name")
-        
+
+    varScope = varEl.findtext('P[@Name="scope"]')    
+    if varScope == "LOCAL_DATA" or varScope == "OUTPUT_DATA":
+        varDef["scope"] = "local"
+    elif varScope == "INPUT_DATA":
+        varDef["scope"] = "input"
+    elif varScope == "CONSTANT":
+        varDef["const"] = True
+    else:
+        raise notSupportedException("Variable of unsupported scope: %s %s" 
+                                    % (varScope, varEl.get("name")))
+
+
     initialValueEl = varEl.find('props/P[@Name="initialValue"]')
     if initialValueEl != None:
-        var += " = " + initialValueEl.findtext(".")
-    
-    return var
+        varDef["init"] = initialValueEl.findtext(".")
+    else:
+        varDef["init"] = None
 
-def writeProcess(chart, outfile, state_names):
+    return (varEl.get("name"), varDef)
+
+def writeProcess(chart, outfile, state_names, set_input):    
     # process declaration    
     if state_names == "id":
-        outfile.write("process %s%s {\n" % (processPrefix, chart.chartID))
+        outfile.write("\nprocess %s%s {\n" % (processPrefix, chart.chartID))
     else:
         outfile.write("process %s%s {\n" % (processPrefix, chart.chartName))
 
-    # variables    
-    for variable in chart.dataVariables:
-        outfile.write("\t%s;\n" % variable)
+    # variables
+    for varName, varDef in chart.variables.items():
+        if set_input and varDef["scope"] == "input":
+            continue
         
-    for varName, varType in chart.labelVariables.items():
-        outfile.write("\t%s%s;\n" % (varType, varName))
+        if varDef["scope"] == "input":
+            outfile.write("\tinput ")
+        else:
+            outfile.write("\t")
+
+        outfile.write("%s %s" % (varDef["type"], varName))
     
+        if varDef["init"] != None and varDef["init"] != "":
+            outfile.write(" = %s;\n" % varDef["init"])
+        
+        outfile.write(";\n")
+
     # states
     outfile.write("\tstate %s;\n" % getListOfStates(chart.states,
                                                     state_names))
-    outfile.write("\tinit %sinit;\n" % statePrefix)
+    outfile.write("\tinit %sstart;\n" % statePrefix)
 
     # transitions (without loops representing during actions)
     startTrans = False
@@ -185,7 +199,6 @@ def writeProcess(chart, outfile, state_names):
                 outfile.write(" guard %s;" % ", ".join(conditions))
 
             # actions
-            actionList = []
             for action in state["label"]["du"]:
                 actionList.append(action)
             actionString = " ".join(actionList)
@@ -197,11 +210,8 @@ def writeProcess(chart, outfile, state_names):
             outfile.write(" }\n")
 
     outfile.write("}\n\n")
-    
-    # TODO
-    outfile.write("system async;\n\n")
 
-def sf2dve(infile, outfile, state_names):
+def sf2dve(infile, outfile, state_names, set_input):
     stateflowEtree = etree.parse(infile)
     checkInput(stateflowEtree)
     
@@ -209,11 +219,34 @@ def sf2dve(infile, outfile, state_names):
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
         charts.append(planarization.makePlanarized(chart))
     
-    for varEl in stateflowEtree.findall("//machine/Children/data"):
-        outfile.write(getDataVariable(varEl) + ";\n")
-    
+    if set_input:
+        inputVariables = {}
+        for chart in charts:
+            for varName, varDef in chart.variables.items():
+                if varDef["scope"] == "input":
+                    inputVariables[varName] = varDef["type"]
+                    outfile.write("%s %s" % (varDef["type"], varName))
+                    if varDef["init"] is not None:
+                        outfile.write(" = %s" % varDef["init"])
+                    outfile.write(";\n")
+        outfile.write("\nprocess seting_input {\n")
+        outfile.write("\tstate start, stop;\n\tinit start;\n\ttrans\n")
+        for varName, varDef in inputVariables.items():
+            if varDef == "byte":
+                inputs = [0, 1]
+            else:
+                inputs = range(-100, 100)
+            for i in inputs:
+                outfile.write("\t\tstart -> stop { ")
+                outfile.write("effect %s = %s;" % (varName, i))
+                outfile.write(" }\n")
+        outfile.write("}\n")
+
     for chart in charts:
-        writeProcess(chart, outfile, state_names)
+        writeProcess(chart, outfile, state_names, set_input)
+
+    # TODO
+    outfile.write("system async;\n\n")
 
 def main():
     import argparse
@@ -222,17 +255,22 @@ def main():
                         type=argparse.FileType('r'))
     parser.add_argument("output", help="output DVE file",
                         type=argparse.FileType('w'))
-    parser.add_argument("-s", "--state-names", help="as name of state " +\
+    parser.add_argument("-n", "--state-names", help="as name of state " +\
                         "will be used: id (unique but not human friendly), " +\
                         "hierarchical name (longer, may not be unique) or " +\
                         "original name (shorter, may not be unique). Use " +\
                         "id (default) when generating input for DiVinE. " +\
                         "Also affects names of processes.",
                         choices=["id", "hierarchical", "name"], default="id")
+    parser.add_argument("-i", "--set-input", help="this option adds " +\
+                        "process that nondeterministically sets input " +\
+                        "variables nondererministicaly assigned random " +\
+                        "values from interval (0, 10).", action='store_true', 
+                        default=False)
     args = parser.parse_args()
     
     try:
-        sf2dve(args.input, args.output, args.state_names)
+        sf2dve(args.input, args.output, args.state_names, args.set_input)
     except notSupportedException as e:
         print("Following is not supported: %s" % e, file=sys.stderr)
         return
