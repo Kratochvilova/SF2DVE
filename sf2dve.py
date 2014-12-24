@@ -132,11 +132,11 @@ def writeProcess(chart, outfile, state_names, set_input):
         # negated conditions of transitions with higher priority
         for trans2 in chart.transitions:
             if (trans2["src"] == trans["src"] and 
-            (trans2["hierarchy"] < trans["hierarchy"] or
-            (trans2["hierarchy"] == trans["hierarchy"] and
-            trans2["orderType"] < trans["orderType"]) or
-            (trans2["hierarchy"] == trans["hierarchy"] and
-            (trans2["orderType"] == trans["orderType"] and
+            (trans2["srcHierarchy"] < trans["srcHierarchy"] or
+            (trans2["srcHierarchy"] == trans["srcHierarchy"] and
+            trans2["transHierarchy"] < trans["transHierarchy"]) or
+            (trans2["srcHierarchy"] == trans["srcHierarchy"] and
+            (trans2["transHierarchy"] == trans["transHierarchy"] and
             trans2["order"] < trans["order"])))):
                 if trans2["label"]["conditions"] != "":
                     conditions.append("not(" + trans2["label"]["conditions"] + ")")

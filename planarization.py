@@ -257,51 +257,44 @@ def makePlanarized(chart):
         else:
             destination = findDefaultDestination(dst, chart, planarizedChart)
 
-        # updating transition action by actions of crossed superstates
-        # (sources have the same parents)
-        if src != "init":
-            lastCommonParent = 0
-            transAncestor = transParent
-            while transAncestor.tag != "chart":
-                transAncestor = transAncestor.getparent().getparent()
-                lastCommonParent += 1
-
-            for parentSSID in list(reversed(planarizedChart.states[sources[0]]["parents"]))[lastCommonParent:]:
-                parentLabel = labelCache.getState(parentSSID)
-                labelDict["ta"] = parentLabel["ex"] + labelDict["ta"]
-            for parentSSID in list(reversed(planarizedChart.states[destination]["parents"]))[lastCommonParent:]:
-                parentLabel = labelCache.getState(parentSSID)
-                labelDict["ta"] = labelDict["ta"] + parentLabel["en"]
-
-        # determining hierarchy, orderType and order
+        # determining source hierarchy, transition hierarchy and order
         if sources[0] == "start":
-            hierarchy = 0
-            orderType = 0
+            srcHierarchy = 0
+            transHierarchy = 0
         else:
-            hierarchy = 1
+            srcHierarchy = 1
             if src == "init":
                 srcState = chart.find('.//state[@SSID="%s"]' % sources[0])
             else:
                 srcState = chart.find('.//state[@SSID="%s"]' % src)
             srcParent = srcState.getparent().getparent()
             while srcParent.tag != "chart":
-                hierarchy += 1
+                srcHierarchy += 1
                 srcParent = srcParent.getparent().getparent()
 
-            orderType = 2
-            dstState = chart.find('.//state[@SSID="%s"]' % dst)
-            dstParent = dstState.getparent().getparent()
-            while dstParent.tag != "chart":
-                if dstParent.get("SSID") == src:
-                    orderType = 1
-                dstParent = dstParent.getparent().getparent()
+        transHierarchy = 0
+        transAncestor = transParent
+        while transAncestor.tag != "chart":
+            transAncestor = transAncestor.getparent().getparent()
+            transHierarchy += 1
 
         order = int(trans.findtext('P[@Name="executionOrder"]'))
+
+        # updating transition action by actions of crossed superstates
+        # (sources have the same parents)
+        if src != "init":
+            for parentSSID in list(reversed(planarizedChart.states[sources[0]]["parents"]))[transHierarchy:]:
+                parentLabel = labelCache.getState(parentSSID)
+                labelDict["ta"] = parentLabel["ex"] + labelDict["ta"]
+            for parentSSID in list(reversed(planarizedChart.states[destination]["parents"]))[transHierarchy:]:
+                parentLabel = labelCache.getState(parentSSID)
+                labelDict["ta"] = labelDict["ta"] + parentLabel["en"]
 
         for source in sources:
             planarizedChart.transitions.append({"ssid":trans.get("SSID"),
             "label":labelDict, "src":source, "dst":destination,
-            "hierarchy":hierarchy, "orderType":orderType, "order":order})
+            "srcHierarchy":srcHierarchy, "transHierarchy":transHierarchy, 
+            "order":order})
 
     planarizedChart.variables.update(labelCache.labelVariables)
 
