@@ -9,7 +9,6 @@ Created on Thu Sep 25 13:21:52 2014
 import re, state_parser, transition_parser, action_parser, condition_parser
 from sf2dve import getDataVariable
 from exceptions import invalidInputException
-from copy import copy
 
 # planarized Stateflow chart
 # states - leaf states of the state hierarchy - ssid = {hierarchical name,
@@ -17,9 +16,9 @@ from copy import copy
 #       actions, "ex":exit actions}), parents}
 # transitions - ssid (no longer unique), label (in general format
 #       {"conditions":conditions, "ca":condition actions, "ta":transition
-#       actions}), source, destination, hierarchy, orderType, order (hierarchy,
-#       orderType and order together define execution order - it is determined
-#       first by hierarchy number then by orderType and then by order; in all
+#       actions}), source, destination, srcHierarchy, transType, order (hierarchy,
+#       transType and order together define execution order - it is determined
+#       first by srcHierarchy, then by transType and then by order; in all
 #       cases lower number means higher priority)
 # variables - name = {"type":variable type, "const":True or False,
 #       "init":initialization, "scope":label, local  or input}
@@ -257,10 +256,24 @@ def makePlanarized(chart):
         else:
             destination = findDefaultDestination(dst, chart, planarizedChart)
 
-        # determining source hierarchy, transition hierarchy and order
+        # updating transition action by actions of crossed superstates
+        # (sources have the same parents)
+        transHierarchy = 0
+        transAncestor = transParent
+        while transAncestor.tag != "chart":
+            transHierarchy += 1
+            transAncestor = transAncestor.getparent().getparent()
+        if src != "init":
+            for parentSSID in list(reversed(planarizedChart.states[sources[0]]["parents"]))[transHierarchy:]:
+                parentLabel = labelCache.getState(parentSSID)
+                labelDict["ta"] = parentLabel["ex"] + labelDict["ta"]
+            for parentSSID in list(reversed(planarizedChart.states[destination]["parents"]))[transHierarchy:]:
+                parentLabel = labelCache.getState(parentSSID)
+                labelDict["ta"] = labelDict["ta"] + parentLabel["en"]
+
+        # determining source hierarchy, transition type and order
         if sources[0] == "start":
             srcHierarchy = 0
-            transHierarchy = 0
         else:
             srcHierarchy = 1
             if src == "init":
@@ -272,28 +285,19 @@ def makePlanarized(chart):
                 srcHierarchy += 1
                 srcParent = srcParent.getparent().getparent()
 
-        transHierarchy = 0
-        transAncestor = transParent
-        while transAncestor.tag != "chart":
-            transAncestor = transAncestor.getparent().getparent()
-            transHierarchy += 1
+        if transParent.get("SSID") == src:
+            transType = 2
+        elif src == "init":
+            transType = 0
+        else:
+            transType = 1
 
         order = int(trans.findtext('P[@Name="executionOrder"]'))
-
-        # updating transition action by actions of crossed superstates
-        # (sources have the same parents)
-        if src != "init":
-            for parentSSID in list(reversed(planarizedChart.states[sources[0]]["parents"]))[transHierarchy:]:
-                parentLabel = labelCache.getState(parentSSID)
-                labelDict["ta"] = parentLabel["ex"] + labelDict["ta"]
-            for parentSSID in list(reversed(planarizedChart.states[destination]["parents"]))[transHierarchy:]:
-                parentLabel = labelCache.getState(parentSSID)
-                labelDict["ta"] = labelDict["ta"] + parentLabel["en"]
 
         for source in sources:
             planarizedChart.transitions.append({"ssid":trans.get("SSID"),
             "label":labelDict, "src":source, "dst":destination,
-            "srcHierarchy":srcHierarchy, "transHierarchy":transHierarchy, 
+            "srcHierarchy":srcHierarchy, "transType":transType, 
             "order":order})
 
     planarizedChart.variables.update(labelCache.labelVariables)
