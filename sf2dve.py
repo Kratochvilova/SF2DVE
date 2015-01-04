@@ -8,7 +8,7 @@ Created on Sat Mar 15 21:30:39 2014
 
 import sys, re, planarization
 from lxml import etree
-from exceptions import notSupportedException, invalidInputException
+from extendedExceptions import notSupportedException, invalidInputException
 
 processPrefix = "process_"
 statePrefix = "state_"
@@ -23,6 +23,9 @@ def checkInput(stateflowEtree):
 
     if (len(stateflowEtree.findall("Stateflow/machine")) != 1):
         raise invalidInputException("invalid number of machines")
+        
+    if stateflowEtree.search("//event") is not None:
+        raise notSupportedException("events")
 
     for state in stateflowEtree.findall("//state"):
         if (state.find('P[@Name="labelString"]') is None or
@@ -202,6 +205,7 @@ def writeProcess(chart, outfile, state_names, feed_input):
                 outfile.write(" guard tick;")
 
             # actions
+            actionList = []
             for action in state["label"]["du"]:
                 actionList.append(action)
             actionString = " ".join(actionList)

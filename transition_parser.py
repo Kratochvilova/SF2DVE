@@ -7,7 +7,7 @@ Created on Sat Oct 18 16:48:32 2014
 """
 
 from ply import lex, yacc
-from exceptions import notSupportedException
+from extendedExceptions import notSupportedException
 
 tokens = ("OPEN_BRACKET", "CLOSE_BRACKET", "OPEN_BRACE", "CLOSE_BRACE", 
           "SLASH", "WHITESPACE", "NEWLINE", "OTHER")

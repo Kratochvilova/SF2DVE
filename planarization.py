@@ -8,7 +8,7 @@ Created on Thu Sep 25 13:21:52 2014
 
 import re, state_parser, transition_parser, action_parser, condition_parser
 from sf2dve import getDataVariable
-from exceptions import invalidInputException
+from extendedExceptions import invalidInputException
 
 # planarized Stateflow chart
 # states - leaf states of the state hierarchy - ssid = {hierarchical name,
