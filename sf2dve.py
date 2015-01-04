@@ -6,7 +6,7 @@ Created on Sat Mar 15 21:30:39 2014
 @author: pavla
 """
 
-import sys, re, planarization
+import sys, re, planarization, zipfile
 from lxml import etree
 from extendedExceptions import notSupportedException, invalidInputException
 
@@ -15,6 +15,9 @@ statePrefix = "state_"
 
 # Checks action language, number of machines and state labels.
 def checkInput(stateflowEtree):
+    if stateflowEtree.find("Stateflow") is None:
+        raise invalidInputException("not recognized as Stateflow")
+    
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
         actionLanguageSetting = chart.find('P[@Name="actionLanguage"]')
         if (actionLanguageSetting != None and
@@ -259,7 +262,10 @@ def writeProcessFeedInputs(outfile, charts):
     outfile.write("}\n\n")
 
 def sf2dve(infile, outfile, state_names, feed_input):
-    stateflowEtree = etree.parse(infile)
+    try:
+        stateflowEtree = etree.parse(infile)
+    except:
+        raise invalidInputException("failed to parse XML")
     checkInput(stateflowEtree)
 
     charts = []
@@ -278,10 +284,11 @@ def sf2dve(infile, outfile, state_names, feed_input):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("input", help="input Stateflow XML file",
-                        type=argparse.FileType('r'))
-    parser.add_argument("output", help="output DVE file",
-                        type=argparse.FileType('w'))
+    parser.add_argument("input", help="input Stateflow slx or XML file",
+                        type=argparse.FileType('rb'))
+    parser.add_argument("output", help="output DVE file, if not set, name " +\
+                        "of input file with dve suffix will be used",
+                        type=argparse.FileType('w'), nargs='?')
     parser.add_argument("-n", "--state-names", help="as name of state " +\
                         "will be used: id (unique but not human friendly), " +\
                         "hierarchical name (longer, may not be unique) or " +\
@@ -293,18 +300,40 @@ def main():
                         "process that nondeterministically feeds input " +\
                         "variables from interval <0, 7> (or <0, 1> for " +\
                         "bytes). Also adds variable tick.", 
-                        action='store_true', 
-                        default=False)
+                        action='store_true', default=False)
     args = parser.parse_args()
     
     try:
-        sf2dve(args.input, args.output, args.state_names, args.feed_input)
+        input_file = args.input
+        output_file = args.output
+        if output_file is None:
+            if input_file == sys.stdin:
+                output_file = sys.stdout
+            else:
+                try:
+                    output_file = open("%s.dve" % input_file.name.rsplit(".", 1)[0], 'w')
+                except IOError as e:
+                    parser.print_usage(file=sys.stderr)
+                    print("Can't open output file: %s" % e, file=sys.stderr)
+                    return 1
+        if input_file != sys.stdin and zipfile.is_zipfile(input_file):
+            try:
+                input_file = zipfile.ZipFile(input_file).open("simulink/blockdiagram.xml")
+            except KeyError as e:
+                print("Couldn't find Stateflow XML file in given archive.", file=sys.stderr)
+                return 1
+        elif input_file != sys.stdin:
+            # not zipfile, unfortunately is_zipfile doesn't seek back to
+            # beginning so this needs to be done by hand (lxml.parse doesn't 
+            # seek either)
+            input_file.seek(0)
+        sf2dve(input_file, output_file, args.state_names, args.feed_input)
     except notSupportedException as e:
         print("Following is not supported: %s" % e, file=sys.stderr)
-        return
+        return 1
     except invalidInputException as e:
         print("Input is not valid stateflow: %s" % e, file=sys.stderr)
-        return
+        return 1
 
 if __name__ == "__main__":
     sys.exit(main())
