@@ -24,7 +24,7 @@ def checkInput(stateflowEtree):
     if (len(stateflowEtree.findall("Stateflow/machine")) != 1):
         raise invalidInputException("invalid number of machines")
         
-    if stateflowEtree.search("//event") is not None:
+    if stateflowEtree.find("//event") is not None:
         raise notSupportedException("events")
 
     for state in stateflowEtree.findall("//state"):
