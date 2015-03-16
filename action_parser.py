@@ -33,16 +33,17 @@ keywords =  {
     "uint32" : "UINT32"
 }
 
-tokens = (["NEWLINE", "COMMENT", "COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN",
-           "ADD_ASSIGN", "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN",
-           "MOD_ASSIGN", "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP",
-           "LEFT_OP", "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP",
-           "EQ_OP", "NE_OP", "LBRACE", "RBRACE", "LBRACKET", "RBRACKET",
-           "NUMBER", "IDENTIFIER"] + list(keywords.values()))
+tokens = (["COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN", "ADD_ASSIGN", 
+           "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN", 
+           "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP", "LEFT_OP", 
+           "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP", 
+           "NE_OP", "LBRACE", "RBRACE", "LBRACKET", "RBRACKET", "NUMBER", 
+           "IDENTIFIER"] + list(keywords.values()))
 
 literals = ";,:=()&!~-+*/%<>^|?@"
 
 t_ignore = " \t\r\f\v"
+t_ignore_COMMENT = r"(//.*)|(/\*(.|\n)*?\*/)"
 t_COLON_ASSIGN = r":="
 t_RIGHT_ASSIGN = r">>="
 t_LEFT_ASSIGN = r"<<="
@@ -70,18 +71,14 @@ t_LBRACKET = r"(\[|<:)"
 t_RBRACKET = r"(\]|:>)"
 t_NUMBER = r"[0-9]+"
 
-def t_NEWLINE(t):
-    r"\n+"
-    t.lexer.lineno += len(t.value)
-
-def t_COMMENT(t):
-    r"(//.*)|(/\*(.|\n)*?\*/)"
-    pass
-
 def t_IDENTIFIER(t):
     r"[a-zA-Z_][a-zA-Z_0-9]*"
     t.type = keywords.get(t.value, "IDENTIFIER")
     return t
+
+def t_newline(t):
+    r"\n+"
+    t.lexer.lineno += len(t.value)
 
 def t_error(t):
     raise TypeError("Unknown text '%s'" % t.value)
@@ -90,7 +87,7 @@ def p_start(p):
     """start : empty
              | block_items"""
     if p[1] is None:
-        p[0] = ""
+        p[0] = []
     else:
         p[0] = p[1]
 
@@ -110,9 +107,9 @@ def p_block_items(p):
                    | declaration
                    | statement"""
     if p[1] is not None and len(p) == 2:
-        p[0] = p[1]
+        p[0] = [p[1]]
     if p[1] is not None and len(p) == 3:
-        p[0] = p[1] + ' ' + p[2]
+        p[0] = [p[1]] + p[2]
     if p[1] is None and len(p) == 3:
         p[0] = p[2]
 
@@ -132,14 +129,14 @@ def p_declaration(p):
                         tempType = "int"
                 elif varType in typeConversions["byte"]:
                     tempType = varType
-                
+
             elif (tempType == "int" and 
                   varType not in typeConversions["modifiers"]):
                       raise ValueError("Error in declaration specifiers")
-                
+
             elif tempType == "bool":
                 raise ValueError("Error in declaration specifiers")
-                
+
             elif tempType == "byte":
                 if varType == "signed":
                     pass
@@ -147,12 +144,12 @@ def p_declaration(p):
                     tempType = "int"
                 else:
                     raise ValueError("Error in declaration specifiers")
-        
+
         if tempType == "int":
             finalType = "int"
         elif (tempType == "bool" or tempType == "char" or tempType == "int8"):
             finalType = "byte"
-            
+
         for varInit in p[2]:
             newVars[prefix + varInit[0]] = {"type":finalType, "const":const,
                                         "init":varInit[1], "scope":"label"}
@@ -232,15 +229,13 @@ def p_initializer_list(p):
 def p_statement(p):
     """statement : compound_statement
                  | expression_statement"""
-    p[0] = p[1]    
+    p[0] = p[1]
 
 def p_expression_statement(p):
     """expression_statement : ';'
                             | expression ';'"""
     if len(p) == 3:
-        p[0] = p[1] + ','
-    else:
-        p[0] = ','
+        p[0] = p[1]
 
 def p_expression(p):
     """expression : assignment_expression
@@ -260,6 +255,10 @@ def p_assignment_expression(p):
         p[0] = p[1] + ' = ' + p[3]
     elif p[2] == ':=':
         p[0] = p[1] + ' = ' + p[3]
+    elif p[2] == "+=":
+        p[0] = p[1] + ' = (' + p[1] + ') + (' + p[3] + ')'
+    elif p[2] == "-=":
+        p[0] = p[1] + ' = (' + p[1] + ') - (' + p[3] + ')'
     elif p[2] == "*=":
         p[0] = p[1] + ' = (' + p[1] + ') * (' + p[3] + ')'
     elif p[2] == "/=":
@@ -438,7 +437,7 @@ def p_error(p):
 lexer = lex.lex()
 parser = yacc.yacc()
 
-def parse(text, tempPrefix, variables=None, lexer=lexer):
+def parse(text, tempPrefix="", variables=None, lexer=lexer):
     global newVars
     global prefix
     if variables is None:

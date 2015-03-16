@@ -9,16 +9,15 @@ Created on Sat Oct 18 16:48:32 2014
 from ply import lex, yacc
 from extendedExceptions import notSupportedException
 
-tokens = ("OPEN_BRACKET", "CLOSE_BRACKET", "OPEN_BRACE", "CLOSE_BRACE", 
-          "SLASH", "WHITESPACE", "NEWLINE", "OTHER")
+tokens = ("OPEN_BRACKET", "CLOSE_BRACKET", "AL_NUM", "WHITESPACE", "NEWLINE", 
+          "OTHER")
+literals = r"{}/"
 
 t_OPEN_BRACKET = r"\["
 t_CLOSE_BRACKET = r"\]"
-t_OPEN_BRACE = r"\{"
-t_CLOSE_BRACE = r"\}"
-t_SLASH = r"/"
+t_AL_NUM = r"\w+"
 t_WHITESPACE = r"[ \t\r\f\v]+"
-t_OTHER = r"[^\[\]{}/\s]+"
+t_OTHER = r"[^\[\]{}/\s\w]+"
 
 def t_NEWLINE(t):
     r"\n+"
@@ -29,74 +28,74 @@ def t_error(t):
     raise TypeError("Unknown text '%s'" % t.value)
 
 def p_label(p):
-    """LABEL : WS CONDITION C_ACTION T_ACTION
-             | WS CONDITION INCORRECT_C_ACTION"""
-    p[0] = [p[2], p[3], p[4]]
+    """label : ws events condition c_action t_action
+             | ws events OPEN_BRACKET A CLOSE_BRACKET ws incorrect_c_action"""
+    if (len(p) == 6):
+        p[0] = [p[2], p[3], p[4], p[5]]
+
+def p_events(p):
+    """events : AL_NUM ws
+              | empty"""
+    p[0] = p[1]
 
 def p_condition(p):
-    """CONDITION : OPEN_BRACKET A CLOSE_BRACKET WS
-                 | EMPTY"""
+    """condition : OPEN_BRACKET A CLOSE_BRACKET ws
+                 | empty"""
     if (len(p) == 5):
         p[0] = p[2]
-    else:
-        p[0] = p[1]
 
 def p_c_action(p):
-    """C_ACTION : OPEN_BRACE A CLOSE_BRACE WS
-                | EMPTY"""
+    """c_action : '{' A '}' ws
+                | empty"""
     if (len(p) == 5):
         p[0] = p[2]
-    else:
-        p[0] = p[1]
 
 def p_t_action(p):
-    """T_ACTION : SLASH A
-                | EMPTY"""
+    """t_action : '/' A
+                | empty"""
     if (len(p) == 3):
         p[0] = p[2]
-    else:
-        p[0] = p[1]
 
 def p_empty(p):
-    "EMPTY :"
+    "empty :"
     pass
 
 def p_ws(p):
-    """WS : WHITESPACE
-          | NEWLINE
-          | EMPTY"""
+    """ws : WHITESPACE ws
+          | NEWLINE ws
+          | empty"""
+    if p[1] is None:
+        p[0] = ""
+    else:
+        p[0] = p[1] + p[2]
+
+def p_action(p):
+    """A : A2
+         | empty"""
+    if p[1] is None:
+        p[0] = ""
+    else:
+        p[0] = p[1]
 
 def p_action_parts(p):
-    """A : OTHER A2
-         | WHITESPACE A2
-         | NEWLINE A2
-         | SLASH A2"""
+    """A2 : AL_NUM A
+          | OTHER A
+          | WHITESPACE A
+          | NEWLINE A
+          | '/' A"""
     if (p[2] is None):
         p[0] = p[1]
     else:
         p[0] = p[1] + p[2]
 
 def p_brackets(p):
-    """A : OPEN_BRACKET A2 CLOSE_BRACKET A2
-         | OPEN_BRACE A2 CLOSE_BRACE A2"""
-    if p[2] is None:
-        if p[4] is None:
-            p[0] = p[1] + p[3]
-        else:
-            p[0] = p[1] + p[3] + p[4]
-    else:
-        if p[4] is None:
-            p[0] = p[1] + p[2] + p[3]
-        else:
-            p[0] = p[1] + p[2] + p[3] + p[4]
-
-def p_action(p):
-    """A2 : A
-          | EMPTY"""
-    p[0] = p[1]
+    """A2 : OPEN_BRACKET A CLOSE_BRACKET A
+          | '{' A '}' A"""
+    p[0] = p[1] + p[2] + p[3] + p[4]
     
 def p_incorrect_c_action(p):
-    "INCORRECT_C_ACTION : OTHER A2"
+    """incorrect_c_action : AL_NUM A
+                          | OTHER A"""
     raise notSupportedException("Condition actions must be enclosed in curly "
                                 "brackets.")
 

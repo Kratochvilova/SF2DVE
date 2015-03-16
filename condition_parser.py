@@ -8,13 +8,13 @@ Created on Sun Nov  9 09:35:20 2014
 
 from ply import lex, yacc
 
-tokens = ("COMMENT", "NEWLINE", "RIGHT_OP", "LEFT_OP", "AND_OP", "OR_OP", 
-          "LE_OP", "GE_OP", "EQ_OP", "NE_OP", "LBRACKET", "RBRACKET", "NUMBER",
-          "IDENTIFIER")
+tokens = ("RIGHT_OP", "LEFT_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP", 
+          "NE_OP", "LBRACKET", "RBRACKET", "NUMBER", "IDENTIFIER")
 
 literals = ";,:=()&!~-+*/%<>^|?"
 
 t_ignore = " \t\r\f\v"
+t_ignore_COMMENT = r"(//.*)|(/\*(.|\n)*?\*/)"
 t_RIGHT_OP = r">>"
 t_LEFT_OP = r"<<"
 t_AND_OP = r"&&"
@@ -28,14 +28,10 @@ t_RBRACKET = r"(\]|:>)"
 t_NUMBER = r"[0-9]+"
 t_IDENTIFIER = r"[a-zA-Z_][a-zA-Z_0-9]*"
 
-def t_NEWLINE(t):
+def t_newline(t):
     r"\n+"
     t.lexer.lineno += len(t.value)
-
-def t_COMMENT(t):
-    r"(//.*)|(/\*(.|\n)*?\*/)"
-    pass
-
+    
 def t_error(t):
     raise TypeError("Unknown text '%s'" % t.value)
 

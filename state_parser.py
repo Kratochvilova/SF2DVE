@@ -14,23 +14,29 @@ keywords = {
    "ex" : "EX",
    "entry" : "ENTRY",
    "during" : "DURING",
-   "exit" : "EXIT"
+   "exit" : "EXIT",
+   "bind" : "BIND",
+   "on" : "ON",
+   "after" : "AFTER",
+   "at" : "AT",
+   "before" : "BEFORE",
+   "every" : "EVERY"
 }
 
 tokens = (["WHITESPACE", "NEWLINE", "AL_NUM", "OTHER"] + list(keywords.values()))
-literals = ",;:"
+literals = ",;:()"
 
 t_WHITESPACE = r"[ \t\r\f\v]+"
-t_OTHER = r"[^\s,;:\w]+"
-
-def t_NEWLINE(t):
-    r"\n+"
-    t.lexer.lineno += len(t.value)
-    return t
+t_OTHER = r"[^\s,;:()\w]+"
 
 def t_AL_NUM(t):
     r"\w+"
     t.type = keywords.get(t.value, "AL_NUM")
+    return t
+
+def t_NEWLINE(t):
+    r"\n+"
+    t.lexer.lineno += len(t.value)
     return t
 
 def t_error(t):
@@ -56,16 +62,16 @@ def p_empty(p):
     pass
 
 def p_ws(p):
-    """ws : WHITESPACE
-          | NEWLINE
+    """ws : WHITESPACE ws
+          | NEWLINE ws
           | empty"""
     if p[1] is None:
         p[0] = ""
     else:
-        p[0] = p[1]
+        p[0] = p[1] + p[2]
 
 def p_keywords(p):
-    """keywords : keyword separator keyword
+    """keywords : keyword separator keywords
                 | keyword ws ':'"""
     if p[3] != ':':
         p[0] = [p[1]] + p[3]
@@ -78,38 +84,57 @@ def p_keyword(p):
                | EX
                | ENTRY
                | DURING
-               | EXIT"""
-    p[0] = p[1]
+               | EXIT
+               | BIND
+               | ON ws event"""
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = [p[1], p[3]]
 
 def p_separator(p):
     """separator : ws ',' ws
                  | ws ';' ws"""
     p[0] = p[2]
-
-def p_actions(p):
-    """actions : AL_NUM actions
-               | WHITESPACE actions
-               | NEWLINE actions
-               | ',' actions
-               | ';' actions
-               | ':' actions
-               | OTHER actions
-               | AL_NUM
-               | WHITESPACE
-               | NEWLINE
-               | ','
-               | ';'
-               | ':'
-               | OTHER"""
-    if len(p) == 3:
-        p[0] = p[1] + p[2]
-    else:
+    
+def p_event(p):
+    """event : AL_NUM
+             | temporal '(' ws AL_NUM ws ',' ws AL_NUM ws ')'"""
+    if len(p) == 2:
         p[0] = p[1]
+    else:
+        p[0] = [p[1], p[4], p[8]]
+
+def p_temporal(p):
+    """temporal : AFTER
+                | AT
+                | BEFORE
+                | EVERY"""
+    p[0] = p[1]
+    
+def p_actions(p):
+    """actions : anything actions
+               | anything"""
+    if len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = p[1] + p[2]
+
+def p_anything(p):
+    """anything : WHITESPACE
+                | NEWLINE
+                | AL_NUM
+                | OTHER
+                | ','
+                | ';'
+                | ':'
+                | '('
+                | ')'"""
+    p[0] = p[1]
 
 def p_error(p):
     if p is None:
         raise ValueError("Unknown error")
-    print(repr(p))
     raise ValueError("Syntax error, line %s: %s" % (p.lineno, p.type))
 
 lexer = lex.lex()
