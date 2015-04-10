@@ -7,27 +7,7 @@ Created on Thu Sep 25 13:21:52 2014
 """
 
 import re, state_parser, transition_parser, action_parser, condition_parser
-from sf2dve import getDataVariable
-from extendedExceptions import invalidInputException
-
-# planarized Stateflow chart
-# states - leaf states of the state hierarchy - ssid = {hierarchical name,
-#       label(in general format {"name":name, "en":entry actions, "du":during
-#       actions, "ex":exit actions}), parents}
-# transitions - ssid (no longer unique), label (in general format
-#       {"conditions":conditions, "ca":condition actions, "ta":transition
-#       actions}), source, destination, srcHierarchy, transType, order (hierarchy,
-#       transType and order together define execution order - it is determined
-#       first by srcHierarchy, then by transType and then by order; in all
-#       cases lower number means higher priority)
-# variables - name = {"type":variable type, "const":True or False,
-#       "init":initialization, "scope":label, local  or input}
-class PlanarizedChart:
-    chartID = 0
-    chartName = ""
-    states = {}
-    transitions = []
-    variables = {}
+from extendedExceptions import notSupportedException
 
 # labels - parsed labels of states and transitions
 # labelVariables - variables declared in labels
@@ -38,7 +18,7 @@ class LabelCache:
 
     def __init__(self, chart):
         self.chart = chart
-    
+
     def _get(self, key, nodeType):
         if nodeType not in self.labels:
             self.labels[nodeType] = {}
@@ -67,14 +47,14 @@ class LabelCache:
 
     def getTransition(self, key):
         return self._get(key, "transition")
-        
+
 def getStateName(labelString):
-    match = re.match(r"([^\n]*)/", labelString)
-    if (match is not None):
-        return match.group(0)
+    match = re.match(r"([^\n]*?)/", labelString)
+    if match is not None:
+        return match.group(1)
     match = re.match(r"([^\n]*)\n", labelString)
-    if (match is not None):
-        return match.group(0)
+    if match is not None:
+        return match.group(1)
     return labelString
 
 def parseStateLabel(labelString, ssid):
@@ -83,13 +63,13 @@ def parseStateLabel(labelString, ssid):
     # separating name and fixing rest of the label (puting "en:" on the
     # begining if there is no action keyword)
     labelDict["name"] = getStateName(labelString)
-    labelString = labelString[len(labelDict["name"]):].strip()
+    labelString = labelString[len(labelDict["name"])+1:].strip()
     labelDict["name"] = labelDict["name"].strip()
-    if labelString != "" and re.match(r"(entry|during|exit|en|du|ex)",
-                                      labelString.strip()) is None:
+    if labelString != "" and re.match(r"(entry|en|during|du|exit|ex|bind|on)",
+                                      labelString) is None:
         labelString = "en:" + labelString
 
-    actionTypes = {"entry":"en", "during":"du", "exit":"ex"}
+    action_keywords = {"entry":"en", "during":"du", "exit":"ex"}
 
     # dividing label
     labelDict["en"] = []
@@ -101,83 +81,170 @@ def parseStateLabel(labelString, ssid):
     if parsedLabel is None:
         return (labelDict, labelVariables)
     for (keywordPart, actionPart) in parsedLabel:
+        if "bind" in keywordPart:
+            raise notSupportedException('"bind" actions')
+        if "on" in keywordPart:
+            raise notSupportedException('"on event" actions')
         (parsedActionPart, newVars) = action_parser.parse(actionPart,
                                                           "state_%s_" % ssid,
                                                           labelVariables)
         labelVariables.update(newVars)
-        parsedActionPart = parsedActionPart.strip()
-        for (actionType, abbreviation) in actionTypes.items():
-            if (actionType in keywordPart or abbreviation in keywordPart):
-                labelDict[abbreviation].append(parsedActionPart)
+        for (keyword, abbreviation) in action_keywords.items():
+            if keyword in keywordPart or abbreviation in keywordPart:
+                labelDict[abbreviation] += parsedActionPart
 
     return (labelDict, labelVariables)
 
 def parseTransitionLabel(labelString, ssid):
     labelDict = {}
-    labelDict["conditions"] = ""
-    labelDict["ca"] = ""
+    labelDict["condition"] = ""
+    labelDict["ca"] = []
     labelDict["ta"] = []
     labelVariables = {}
 
     parsedLabel = transition_parser.parse(labelString.strip())
-    if parsedLabel[0] is not None and parsedLabel[0].strip() != "":
-        labelDict["conditions"] = condition_parser.parse(parsedLabel[0])
-        labelDict["conditions"] = labelDict["conditions"].strip()
-    if parsedLabel[1] is not None and parsedLabel[1].strip() != "":
-        (labelDict["ca"], newVars) = action_parser.parse(parsedLabel[1],
+    if parsedLabel[0] is not None:
+        raise notSupportedException("events in transition labels")
+    if parsedLabel[1] is not None:
+        labelDict["condition"] = condition_parser.parse(parsedLabel[1]).strip()
+    if parsedLabel[2] is not None:
+        (labelDict["ca"], newVars) = action_parser.parse(parsedLabel[2],
                                                          "trans_%s_" % ssid,
                                                          labelVariables)
         labelVariables.update(newVars)
-        labelDict["ca"] = labelDict["ca"].strip()
-    if parsedLabel[2] is not None and parsedLabel[2].strip() != "":
-        (ta, newVars) = action_parser.parse(parsedLabel[2], "trans_%s_" % ssid,
-                                            labelVariables)
+    if parsedLabel[3] is not None:
+        (labelDict["ta"], newVars) = action_parser.parse(parsedLabel[3],
+                                                         "trans_%s_" % ssid,
+                                                         labelVariables)
         labelVariables.update(newVars)
-        labelDict["ta"].append(ta.strip())
 
     return (labelDict, labelVariables)
 
-def addState(stateEl, labelCache, planarizedChart):
-    stateSSID = stateEl.get("SSID")
-    labelDict = labelCache.getState(stateSSID)
+# planarized Stateflow chart
+# states 
+#   - leaf states of the state hierarchy
+#   - ssid = {hierarchical name, label, parents}
+#       - label = {name, entry actions, during actions, exit actions}
+# transitions
+#   - {ssid, label, source, destination, srcHierarchy, transType, order}
+#       - ssid is no longer unique
+#       - label = {condition, condition actions, transition actions}
+#       - scrHierarchy, transType and order together define execution order
+#         (determined first by srcHierarchy, then by transType and then by
+#         order; in all cases lower number means higher priority)
+# variables
+#   - name = {variable type, constant, initialization, scope}
+class PlanarizedChart:
+    chartID = 0
+    chartName = ""
+    states = {}
+    transitions = []
+    variables = {}
 
-    parents = []
-    longName = labelDict["name"]
-    parent = stateEl.getparent().getparent()
-    while (parent.tag == "state"):
-        parentSSID = parent.get("SSID")
-        parents.append(parentSSID)
-        parentDict = labelCache.getState(parentSSID)
-        longName = parentDict["name"] + "_" + longName
-        labelDict["du"] = parentDict["du"] + labelDict["du"]
-        parent = parent.getparent().getparent()
+    def addState(self, stateEl, labelCache):
+        stateSSID = stateEl.get("SSID")
+        stateLabel = labelCache.getState(stateSSID)
 
-    planarizedChart.states[stateSSID] = {
-        "longName":longName,
-        "label":labelDict,
-        "parents":parents,
-        "superstate":False
-    }
+        parents = []
+        longName = stateLabel["name"]
+        parent = stateEl.getparent().getparent()
+        while parent.tag == "state":
+            parents.append(parent.get("SSID"))
+            parentLabel = labelCache.getState(parent.get("SSID"))
+            longName = parentLabel["name"] + "_" + longName
+            stateLabel["du"] = parentLabel["du"] + stateLabel["du"]
+            parent = parent.getparent().getparent()
 
-def findDefaultDestination(dst, chart, planarizedChart):
-    parentSSID = dst
-    parentEl = chart.find('.//state[@SSID="%s"]' % parentSSID)
+        self.states[stateSSID] = {
+            "longName":longName,
+            "label":stateLabel,
+            "parents":parents
+        }
 
-    while parentSSID not in planarizedChart.states:
-        transitions = parentEl.findall('Children/transition')
-        defaultTrans = []
-        for trans in transitions:
-            if (trans.find('src/P[@Name="SSID"]') is None and
-                trans.findtext('P[@Name="executionOrder"]') == "1"):
-                    defaultTrans.append(trans)
-        if len(defaultTrans) != 1:
-            print(parentSSID)
-            raise invalidInputException("Wrong number of default transitions.")
+    def addVariable(self, varEl):
+        typeConversions = {"int":["int16", "int32", "uint8", "uint16",
+                                  "uint32", "int"],
+                           "byte":["int8", "boolean"]}
+        varDef = {}
+
+        varType = varEl.findtext('P[@Name="dataType"]')
+        if varType in typeConversions["int"]:
+            varDef["type"] = "int"
+        elif varType in typeConversions["byte"]:
+            varDef["type"] = "byte"
         else:
-            parentSSID = defaultTrans[0].findtext('dst/P[@Name="SSID"]')
-            parentEl = chart.find('.//state[@SSID="%s"]' % parentSSID)
+            raise notSupportedException("variables of type %s" % varType)
 
-    return parentSSID
+        varScope = varEl.findtext('P[@Name="scope"]')
+        varDef["const"] = False
+        if varScope == "LOCAL_DATA" or varScope == "OUTPUT_DATA":
+            varDef["scope"] = "local"
+        elif varScope == "INPUT_DATA":
+            varDef["scope"] = "input"
+        elif varScope == "CONSTANT":
+            varDef["scope"] = "local"
+            varDef["const"] = True
+        else:
+            raise notSupportedException("variables of scope %s" % varScope)
+
+        initialValueEl = varEl.find('props/P[@Name="initialValue"]')
+        if initialValueEl is None:
+            varDef["init"] = None
+        else:
+            varDef["init"] = initialValueEl.findtext(".")
+
+        self.variables[varEl.get("name")] = varDef
+
+def negateConditions(conditions):
+    if conditions == []:
+        return "false"
+
+    negatedConditions = []
+    for cond in conditions:
+        if cond == "":
+            negatedConditions.append("false")
+        else:
+            negatedConditions.append("not (%s)" % cond)
+    return " or ".join(negatedConditions)
+
+def findSrcPaths(currentPath, paths, labelCache, chart):
+    if currentPath[0].find("Children") is None:
+        return paths + [currentPath]
+
+    children = currentPath[0].findall("Children/state")
+    for child in children:
+        newActions = labelCache.getState(child.get("SSID"))["ex"] + currentPath[1]
+        paths = findSrcPaths((child, newActions), paths, labelCache, chart)
+
+    return paths
+
+def findDstPaths(currentPath, paths, labelCache, chart):
+    if currentPath[0].find("Children") is None:
+        return paths + [currentPath]
+
+    defTrans = sorted(filter(lambda x:x.find('src/P[@Name="SSID"]') is None,
+                             currentPath[0].findall('Children/transition')),
+                      key=lambda transEl:transEl.findtext('P[@Name="executionOrder"]'))
+
+    negatedConditions = []
+
+    for transEl in defTrans:
+        dstSSID = transEl.findtext('dst/P[@Name="SSID"]')
+        dstEl = currentPath[0].find('Children/state[@SSID="%s"]' % dstSSID)
+        transLabel = labelCache.getTransition(transEl.get("SSID"))
+
+        newConditions = currentPath[1] + negatedConditions
+        if transLabel["condition"] != "":
+            newConditions.append(transLabel["condition"])
+        negatedConditions.append(negateConditions([transLabel["condition"]]))
+        newActions = currentPath[2] + transLabel["ca"] + transLabel["ta"] + labelCache.getState(dstSSID)["en"]
+
+        paths = findDstPaths((dstEl, newConditions, newActions), 
+                                 paths, labelCache, chart)
+
+    paths.append(("error", currentPath[1] + negatedConditions, currentPath[2]))
+
+    return paths
 
 def makePlanarized(chart):
     planarizedChart = PlanarizedChart()
@@ -186,120 +253,126 @@ def makePlanarized(chart):
     planarizedChart.chartID = chart.get("id")
     planarizedChart.chartName = chart.findtext('P[@Name="name"]')
 
-    # storing variables (defined as data, not in labels)
-    for varEl in chart.findall(".//data"):
-        (varName, varDef) = getDataVariable(varEl)
-        planarizedChart.variables[varName] = varDef
-
-    # storing states (ssid, hierarchical name, label, parents)
-    # superstates are stored only if they contain labeled default transition
+    # storing states
     for stateEl in chart.findall(".//state"):
         if stateEl.find("Children") is None:
-            addState(stateEl, labelCache, planarizedChart)
-        else:
-            defaultTrans = filter(lambda x:x.find('src/P[@Name="SSID"]') is None,
-                                  stateEl.findall('Children/transition'))
-            for trans in defaultTrans:
-                if (trans.find('P[@Name="labelString"]') is not None and
-                    trans.findtext('P[@Name="labelString"]').strip() != ""):
-                        addState(stateEl, labelCache, planarizedChart)
-                        planarizedChart.states[stateEl.get("SSID")]["superstate"] = True
-                        break
-
-    # initial state
+            planarizedChart.addState(stateEl, labelCache)
     planarizedChart.states["start"] = {
         "longName":"start",
-        "label":{"name":"start", "en":"", "du":"", "ex":""},
-        "parents":[],
-        "superstate":False
+        "label":{"name":"start", "en":[], "du":[], "ex":[]},
+        "parents":[]
+    }
+    planarizedChart.states["error"] = {
+        "longName":"error",
+        "label":{"name":"error", "en":[], "du":[], "ex":[]},
+        "parents":[]
     }
 
-    # storing transitions (ssid, label, source, destination, execution order)
-    # (ssid aren't unique anymore, since there can be transition from 
-    # superstate and hence several transitions with the same ssid are created)
-    # transition label must also contain actions of crossed superstates
+    # storing transitions
     for trans in chart.findall(".//transition"):
-        labelDict = labelCache.getTransition(trans.get("SSID"))
+        transLabel = labelCache.getTransition(trans.get("SSID"))
         transParent = trans.getparent().getparent()
+        transParentSSID = transParent.get("SSID")
+
         srcEl = trans.find('src/P[@Name="SSID"]')
-        if (srcEl is None):
-            src = "init"
+        if srcEl is None:
+            srcSSID = "start"
         else:
-            src = srcEl.findtext(".")
-        dst = trans.findtext('dst/P[@Name="SSID"]')
+            srcSSID = srcEl.findtext(".")
+        dstSSID = trans.findtext('dst/P[@Name="SSID"]')
 
-        # not labeled default transitions are ignored (except the one main)
-        if (src == "init" and transParent.tag != "chart" and
-            (trans.find('P[@Name="labelString"]') is None or
-            trans.findtext('P[@Name="labelString"]').strip() == "")):
-                continue
+        # default transitions are ignored (except the initial one)
+        if srcSSID == "start" and transParent.tag != "chart":
+            continue
 
-        # for transition from superstate, one transition from each substate
-        # is created; for transition to superstate, transition to the substate
-        # with default transition is created or to a superstate, if there are
-        # labeled default transitions
-        sources = []
-        if src == "init" and transParent.tag == "chart":
-            sources.append("start")
-        elif src == "init":
-            sources.append(transParent.get("SSID"))
-        elif (src in planarizedChart.states and 
-              not planarizedChart.states[src]["superstate"]):
-            sources.append(src)
+        # updating transition actions with actions of crossed superstates,
+        # source and destination
+        # updating condition actions with during actions of superstates of the
+        # source state
+        if srcSSID != "start":
+            duActions = []
+            exActions = labelCache.getState(srcSSID)["ex"].copy()
+            exiting = True
+            src = chart.find('.//state[@SSID="%s"]' % srcSSID)
+            srcParent = src.getparent().getparent()
+            while srcParent.tag == "state":
+                if srcParent.get("SSID") == transParentSSID:
+                    exiting = False
+                parentLabel = labelCache.getState(srcParent.get("SSID"))
+                duActions = parentLabel["du"] + duActions
+                if exiting:
+                    exActions = exActions + parentLabel["ex"]
+                srcParent = srcParent.getparent().getparent()
+            transLabel["ca"] = duActions + transLabel["ca"]
+            transLabel["ta"] = exActions + transLabel["ta"]
+
+        enActions = labelCache.getState(dstSSID)["en"].copy()
+        dst = chart.find('.//state[@SSID="%s"]' % dstSSID)
+        dstParent = dst.getparent().getparent()
+        while dstParent.tag == "state" and dstParent.get("SSID") != transParentSSID:
+            enActions = labelCache.getState(dstParent.get("SSID"))["en"] + enActions
+            dstParent = dstParent.getparent().getparent()
+        transLabel["ta"] = transLabel["ta"] + enActions
+
+        # for transition from a superstate, one transition from each substate
+        # is created;
+        if srcSSID == "start" and transParent.tag == "chart":
+            srcPaths = [("start", [])]
         else:
-            for stateSSID, state in planarizedChart.states.items():
-                if not state["superstate"] and src in state["parents"]:
-                    sources.append(stateSSID)
+            srcEl = chart.find('.//state[@SSID="%s"]' % srcSSID)
+            srcPaths = findSrcPaths((srcEl, []), [], labelCache, chart)
 
-        if dst in planarizedChart.states:
-            destination = dst
+        # for transition to a superstate, one transition to each substate with
+        # default transition is created (and to an error state, if there
+        # are labeled default transitions)
+        dstEl = chart.find('.//state[@SSID="%s"]' % dstSSID)
+        if transLabel["condition"] == "":
+            conditions = []
         else:
-            destination = findDefaultDestination(dst, chart, planarizedChart)
-
-        # updating transition action by actions of crossed superstates
-        # (sources have the same parents)
-        transHierarchy = 0
-        transAncestor = transParent
-        while transAncestor.tag != "chart":
-            transHierarchy += 1
-            transAncestor = transAncestor.getparent().getparent()
-        if src != "init":
-            for parentSSID in list(reversed(planarizedChart.states[sources[0]]["parents"]))[transHierarchy:]:
-                parentLabel = labelCache.getState(parentSSID)
-                labelDict["ta"] = parentLabel["ex"] + labelDict["ta"]
-            for parentSSID in list(reversed(planarizedChart.states[destination]["parents"]))[transHierarchy:]:
-                parentLabel = labelCache.getState(parentSSID)
-                labelDict["ta"] = labelDict["ta"] + parentLabel["en"]
+            conditions = [transLabel["condition"]]
+        dstPaths = findDstPaths((dstEl, conditions, []), 
+                                [], labelCache, chart)
 
         # determining source hierarchy, transition type and order
-        if sources[0] == "start":
+        if srcSSID == "start":
             srcHierarchy = 0
         else:
             srcHierarchy = 1
-            if src == "init":
-                srcState = chart.find('.//state[@SSID="%s"]' % sources[0])
-            else:
-                srcState = chart.find('.//state[@SSID="%s"]' % src)
-            srcParent = srcState.getparent().getparent()
+            src = chart.find('.//state[@SSID="%s"]' % srcSSID)
+            srcParent = src.getparent().getparent()
             while srcParent.tag != "chart":
                 srcHierarchy += 1
                 srcParent = srcParent.getparent().getparent()
 
-        if transParent.get("SSID") == src:
-            transType = 2
-        elif src == "init":
+        if srcSSID == "start":
             transType = 0
+        elif transParent.get("SSID") == srcSSID:
+            transType = 2
         else:
             transType = 1
 
         order = int(trans.findtext('P[@Name="executionOrder"]'))
 
-        for source in sources:
-            planarizedChart.transitions.append({"ssid":trans.get("SSID"),
-            "label":labelDict, "src":source, "dst":destination,
-            "srcHierarchy":srcHierarchy, "transType":transType, 
-            "order":order})
+        for srcPath in srcPaths:
+            for dstPath in dstPaths:
+                if isinstance(srcPath[0], str):
+                    srcSSID = "start"
+                else:
+                    srcSSID = srcPath[0].get("SSID")
+                if isinstance(dstPath[0], str):
+                    dstSSID = "error"
+                else:
+                    dstSSID = dstPath[0].get("SSID")
 
+                planarizedChart.transitions.append({"ssid":trans.get("SSID"),
+                "src":srcSSID, "dst":dstSSID, "conditions":dstPath[1],
+                "actions": transLabel["ca"] + srcPath[1] + transLabel["ta"] + dstPath[2],
+                "srcHierarchy":srcHierarchy, "transType":transType,
+                "order":order})
+
+    # storing variables
+    for varEl in chart.findall(".//data"):
+        planarizedChart.addVariable(varEl)
     planarizedChart.variables.update(labelCache.labelVariables)
 
     return planarizedChart

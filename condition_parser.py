@@ -8,7 +8,7 @@ Created on Sun Nov  9 09:35:20 2014
 
 from ply import lex, yacc
 
-tokens = ("RIGHT_OP", "LEFT_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP", 
+tokens = ("RIGHT_OP", "LEFT_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP",
           "NE_OP", "LBRACKET", "RBRACKET", "NUMBER", "IDENTIFIER")
 
 literals = ";,:=()&!~-+*/%<>^|?"
@@ -54,7 +54,7 @@ def p_logical_or_expression(p):
         p[0] = p[1]
     else:
         p[0] = p[1] + ' or ' + p[3]
- 
+
 def p_logical_and_expression(p):
     """logical_and_expression : inclusive_or_expression
             | logical_and_expression AND_OP inclusive_or_expression"""
@@ -70,7 +70,7 @@ def p_inclusive_or_expression(p):
         p[0] = p[1]
     else:
         p[0] = p[1] + ' ' + p[2] + ' ' + p[3]
- 
+
 def p_exclusive_or_expression(p):
     """exclusive_or_expression : and_expression
                                | exclusive_or_expression '^' and_expression"""
@@ -86,7 +86,7 @@ def p_and_expression(p):
         p[0] = p[1]
     else:
         p[0] = p[1] + ' ' + p[2] + ' ' + p[3]
- 
+
 def p_equality_expression(p):
     """equality_expression : relational_expression
                            | equality_expression EQ_OP relational_expression
@@ -134,7 +134,7 @@ def p_multiplicative_expression(p):
         p[0] = p[1]
     else:
         p[0] = p[1] + ' ' + p[2] + ' ' + p[3]
- 
+
 def p_unary_expression(p):
     """unary_expression : primary_expression
                         | unary_operator unary_expression

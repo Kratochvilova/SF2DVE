@@ -9,7 +9,7 @@ Created on Sat Oct 18 16:48:32 2014
 from ply import lex, yacc
 from extendedExceptions import notSupportedException
 
-tokens = ("OPEN_BRACKET", "CLOSE_BRACKET", "AL_NUM", "WHITESPACE", "NEWLINE", 
+tokens = ("OPEN_BRACKET", "CLOSE_BRACKET", "AL_NUM", "WHITESPACE", "NEWLINE",
           "OTHER")
 literals = r"{}/"
 

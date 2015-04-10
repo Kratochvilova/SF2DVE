@@ -11,7 +11,7 @@ from ply import lex, yacc
 newVars = None
 prefix = None
 typeConversions = {
-    "int":["int", "int16", "int32", "uint16", "uint32"],
+    "int":["int", "int16", "int32", "uint8", "uint16", "uint32"],
     "byte":["bool", "char", "int8"],
     "modifiers":["long", "short", "signed", "unsigned"]
 }
@@ -33,11 +33,11 @@ keywords =  {
     "uint32" : "UINT32"
 }
 
-tokens = (["COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN", "ADD_ASSIGN", 
-           "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN", 
-           "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP", "LEFT_OP", 
-           "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP", 
-           "NE_OP", "LBRACE", "RBRACE", "LBRACKET", "RBRACKET", "NUMBER", 
+tokens = (["COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN", "ADD_ASSIGN",
+           "SUB_ASSIGN", "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN",
+           "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP", "LEFT_OP",
+           "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP",
+           "NE_OP", "LBRACE", "RBRACE", "LBRACKET", "RBRACKET", "NUMBER",
            "IDENTIFIER"] + list(keywords.values()))
 
 literals = ";,:=()&!~-+*/%<>^|?@"
@@ -124,13 +124,12 @@ def p_declaration(p):
                 const = True
 
             elif tempType == None:
-                if (varType in typeConversions["int"] or
-                    varType in typeConversions["modifiers"]):
-                        tempType = "int"
-                elif varType in typeConversions["byte"]:
+                if varType in typeConversions["byte"]:
                     tempType = varType
+                else:
+                    tempType = "int"
 
-            elif (tempType == "int" and 
+            elif (tempType == "int" and
                   varType not in typeConversions["modifiers"]):
                       raise ValueError("Error in declaration specifiers")
 
@@ -147,12 +146,12 @@ def p_declaration(p):
 
         if tempType == "int":
             finalType = "int"
-        elif (tempType == "bool" or tempType == "char" or tempType == "int8"):
+        elif tempType in typeConversions["byte"]:
             finalType = "byte"
 
         for varInit in p[2]:
             newVars[prefix + varInit[0]] = {"type":finalType, "const":const,
-                                        "init":varInit[1], "scope":"label"}
+                                            "init":varInit[1], "scope":"label"}
 
 def p_type_specifiers(p):
     """type_specifiers : type_specifier
@@ -437,11 +436,9 @@ def p_error(p):
 lexer = lex.lex()
 parser = yacc.yacc()
 
-def parse(text, tempPrefix="", variables=None, lexer=lexer):
-    global newVars
+def parse(text, tempPrefix="", variables={}, lexer=lexer):    
     global prefix
-    if variables is None:
-        variables = {}
-    newVars = variables
+    global newVars
     prefix = tempPrefix
+    newVars = variables
     return (parser.parse(text, lexer), newVars)

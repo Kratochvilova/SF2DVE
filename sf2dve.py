@@ -17,16 +17,16 @@ statePrefix = "state_"
 def checkInput(stateflowEtree):
     if stateflowEtree.find("Stateflow") is None:
         raise invalidInputException("not recognized as Stateflow")
-    
+
+    if len(stateflowEtree.findall("Stateflow/machine")) != 1:
+        raise invalidInputException("invalid number of machines")
+
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
         actionLanguageSetting = chart.find('P[@Name="actionLanguage"]')
         if (actionLanguageSetting != None and
             actionLanguageSetting.findText(".") == "2"):
             raise invalidInputException("invalid action language")
 
-    if (len(stateflowEtree.findall("Stateflow/machine")) != 1):
-        raise invalidInputException("invalid number of machines")
-        
     if stateflowEtree.find("//event") is not None:
         raise notSupportedException("events")
 
@@ -35,50 +35,15 @@ def checkInput(stateflowEtree):
             state.findtext('P[@Name="labelString"]') == ""):
             raise invalidInputException("state without label")
 
-def getListOfStates(states, state_names):
-    if state_names == "id":
-        return ", ".join(statePrefix + ssid for ssid in states)
+def getStateID(ssid, states, state_names):
+    if state_names == "id" or ssid == "start" or ssid == "error":
+        return statePrefix + ssid
     elif state_names == "hierarchical":
-        return ", ".join(statePrefix + s["longName"] for s in states.values())
+        return statePrefix + states[ssid]["longName"]
     else:
-        return ", ".join(statePrefix + s["label"]["name"] for s in states.values())
+        return statePrefix + states[ssid]["label"]["name"]
 
-def getDataVariable(varEl):
-    typeConversions = {"int":["int16", "int32", "uint8", "uint16", "uint32", 
-                              "int"],
-                       "byte":["int8", "boolean"]}
-
-    varDef = {}
-
-    varType = varEl.findtext('P[@Name="dataType"]')
-    if varType in typeConversions["int"]:
-        varDef["type"] = "int"
-    elif varType in typeConversions["byte"]:
-        varDef["type"] = "byte"
-    else:
-        raise notSupportedException("Variable of unsupported type: %s %s"
-                                    % (varType, varEl.get("name")))
-
-    varScope = varEl.findtext('P[@Name="scope"]')
-    if varScope == "LOCAL_DATA" or varScope == "OUTPUT_DATA":
-        varDef["scope"] = "local"
-    elif varScope == "INPUT_DATA":
-        varDef["scope"] = "input"
-    elif varScope == "CONSTANT":
-        varDef["const"] = True
-    else:
-        raise notSupportedException("Variable of unsupported scope: %s %s"
-                                    % (varScope, varEl.get("name")))
-
-    initialValueEl = varEl.find('props/P[@Name="initialValue"]')
-    if initialValueEl != None:
-        varDef["init"] = initialValueEl.findtext(".")
-    else:
-        varDef["init"] = None
-
-    return (varEl.get("name"), varDef)
-
-def writeProcess(chart, outfile, state_names, feed_input):
+def writeProcess(chart, outfile, state_names, feed_input):    
     # process declaration
     if state_names == "id":
         outfile.write("process %s%s {\n" % (processPrefix, chart.chartID))
@@ -92,13 +57,16 @@ def writeProcess(chart, outfile, state_names, feed_input):
         outfile.write("\t")
         if varDef["scope"] == "input":
             outfile.write("input ")
+        if varDef["const"]:
+            outfile.write("const ")
         outfile.write("%s %s" % (varDef["type"], varName))
         if varDef["init"] != None and varDef["init"] != "":
             outfile.write(" = %s;\n" % varDef["init"])
         outfile.write(";\n")
 
     # states
-    outfile.write("\tstate %s;\n" % getListOfStates(chart.states, state_names))
+    stateList = [getStateID(ssid, chart.states, state_names) for ssid in states]
+    outfile.write("\tstate %s;\n" % ", ".join(stateList))
     outfile.write("\tinit %sstart;\n" % statePrefix)
 
     # transitions (without loops emulating during actions)
@@ -110,112 +78,62 @@ def writeProcess(chart, outfile, state_names, feed_input):
         outfile.write("\t\t")
 
         # from -> to
-        if state_names == "id":
-            outfile.write("%s%s -> %s%s" % (statePrefix, trans["src"],
-                                            statePrefix, trans["dst"]))
-        elif state_names == "hierarchical":
-            outfile.write("%s%s -> %s%s" % (statePrefix,
-                                chart.states[trans["src"]]["longName"],
-                                statePrefix,
-                                chart.states[trans["dst"]]["longName"]))
-        else:
-            outfile.write("%s%s -> %s%s" % (statePrefix,
-                                chart.states[trans["src"]]["label"]["name"],
-                                statePrefix,
-                                chart.states[trans["dst"]]["label"]["name"]))
+        source = getStateID(trans["src"], chart.states, state_names)
+        destination = getStateID(trans["dst"], chart.states, state_names)
+        outfile.write("%s%s -> %s%s" % (statePrefix, source, 
+                                        statePrefix, destination))
 
         outfile.write((" {"))
 
-        conditions = []
-        if trans["label"]["conditions"] != "":
-            conditions.append(trans["label"]["conditions"])
+        conditions = trans["conditions"].copy()
         # negated conditions of transitions with higher priority
         for trans2 in chart.transitions:
-            if (trans2["src"] == trans["src"] and 
+            if (trans2["src"] == trans["src"] and
             (trans2["srcHierarchy"] < trans["srcHierarchy"] or
             (trans2["srcHierarchy"] == trans["srcHierarchy"] and
             trans2["transType"] < trans["transType"]) or
             (trans2["srcHierarchy"] == trans["srcHierarchy"] and
             (trans2["transType"] == trans["transType"] and
             trans2["order"] < trans["order"])))):
-                if trans2["label"]["conditions"] != "":
-                    conditions.append("not(" + trans2["label"]["conditions"] + ")")
-                else:
-                    conditions.append("false")
-
-        if feed_input and conditions != []:
-            outfile.write(" guard tick, %s;" % ", ".join(conditions))
-        elif feed_input:
-            outfile.write(" guard tick;")
-        elif conditions != []:
+                conditions.append(planarization.negateConditions(trans2["conditions"]))
+        if conditions != []:
             outfile.write(" guard %s;" % ", ".join(conditions))
 
         # actions
-        actionList = []
-        if trans["label"]["ca"] != "":
-            actionList.append(trans["label"]["ca"])
-        for action in chart.states[trans["src"]]["label"]["ex"]:
-            actionList.append(action)
-        if trans["label"]["ta"] != []:
-            actionList += trans["label"]["ta"]
-        for action in chart.states[trans["dst"]]["label"]["en"]:
-            actionList.append(action)
-        actionString = " ".join(actionList)
-        if actionString != "":
-            if actionString[-1] == ',':
-                actionString = actionString[:-1]
-            outfile.write(" effect %s;" % actionString)
+        if trans["actions"] != []:
+            outfile.write(" effect %s;" % ", ".join(trans["actions"]))
 
         outfile.write(" }\n")
 
     # during actions (transitions)
     for stateSSID, state in chart.states.items():
-        for action in state["label"]["du"]:
+        if state["label"]["du"] != []:
             if not startTrans:
                 startTrans = True
                 outfile.write("\ttrans\n")
+
             outfile.write("\t\t")
 
             # from -> to
-            if state_names == "id":
-                outfile.write("%s%s -> %s%s" % (statePrefix, stateSSID,
-                                                statePrefix, stateSSID))
-            elif state_names == "hierarchical":
-                outfile.write("%s%s -> %s%s" % (statePrefix, 
-                                                state["longName"],
-                                                statePrefix, 
-                                                state["longName"]))
-            else:
-                outfile.write("%s%s -> %s%s" % (statePrefix, 
-                                                state["label"]["name"],
-                                                statePrefix, 
-                                                state["label"]["name"]))
+            stateID = getStateID(stateSSID, chart.states, state_names)
+            outfile.write("%s%s -> %s%s" % (statePrefix, stateID,
+                                            statePrefix, stateID))
 
             outfile.write((" {"))
             # conditions
             conditions = []
             for trans in chart.transitions:
-                if (trans["src"] == stateSSID):
-                    if trans["label"]["conditions"] != "":
-                        conditions.append("not(" + trans["label"]["conditions"] + ")")
-                    else:
+                if trans["src"] == stateSSID:
+                    if trans["conditions"] == []:
                         conditions.append("false")
-            if feed_input and conditions != []:
-                outfile.write(" guard tick, %s;" % ", ".join(conditions))
-            elif conditions != []:
+                    else:
+                        for cond in trans["conditions"]:
+                            conditions.append(planarization.negateCondition(cond))
+            if conditions != []:
                 outfile.write(" guard %s;" % ", ".join(conditions))
-            elif feed_input:
-                outfile.write(" guard tick;")
 
             # actions
-            actionList = []
-            for action in state["label"]["du"]:
-                actionList.append(action)
-            actionString = " ".join(actionList)
-            if actionString != "":
-                if actionString[-1] == ',':
-                    actionString = actionString[:-1]
-                outfile.write(" effect %s;" % actionString)
+            outfile.write(" effect %s;" % ", ".join(state["label"]["du"]))
 
             outfile.write(" }\n")
 

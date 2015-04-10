@@ -47,7 +47,9 @@ def p_start(p):
     p[0] = p[2]
 
 def p_label(p):
-    """label : keywords actions label
+    """label : action_keywords actions label
+             | bind actions label
+             | on actions label
              | empty"""
     if len(p) == 4:
         if p[3] is None:
@@ -71,32 +73,35 @@ def p_ws(p):
         p[0] = p[1] + p[2]
 
 def p_keywords(p):
-    """keywords : keyword separator keywords
-                | keyword ws ':'"""
+    """action_keywords : action_keyword separator action_keywords
+                       | action_keyword ws ':'"""
     if p[3] != ':':
         p[0] = [p[1]] + p[3]
     else:
         p[0] = [p[1]]
 
 def p_keyword(p):
-    """keyword : EN
-               | DU
-               | EX
-               | ENTRY
-               | DURING
-               | EXIT
-               | BIND
-               | ON ws event"""
-    if len(p) == 2:
-        p[0] = p[1]
-    else:
-        p[0] = [p[1], p[3]]
+    """action_keyword : EN
+                      | DU
+                      | EX
+                      | ENTRY
+                      | DURING
+                      | EXIT"""
+    p[0] = p[1]
+
+def p_bind(p):
+    "bind : BIND ws ':'"
+    p[0] = [p[1]]
+
+def p_on(p):
+    "on : ON ws event ws ':'"
+    p[0] = [p[1], p[3]]
 
 def p_separator(p):
     """separator : ws ',' ws
                  | ws ';' ws"""
     p[0] = p[2]
-    
+
 def p_event(p):
     """event : AL_NUM
              | temporal '(' ws AL_NUM ws ',' ws AL_NUM ws ')'"""
@@ -111,7 +116,7 @@ def p_temporal(p):
                 | BEFORE
                 | EVERY"""
     p[0] = p[1]
-    
+
 def p_actions(p):
     """actions : anything actions
                | anything"""
