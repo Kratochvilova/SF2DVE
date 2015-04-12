@@ -24,16 +24,27 @@ def checkInput(stateflowEtree):
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
         actionLanguageSetting = chart.find('P[@Name="actionLanguage"]')
         if (actionLanguageSetting != None and
-            actionLanguageSetting.findText(".") == "2"):
+            actionLanguageSetting.findtext(".") == "2"):
             raise invalidInputException("invalid action language")
 
     if stateflowEtree.find("//event") is not None:
         raise notSupportedException("events")
 
+    if stateflowEtree.find("//junction") is not None:
+        raise notSupportedException("junctions")
+
     for state in stateflowEtree.findall("//state"):
         if (state.find('P[@Name="labelString"]') is None or
             state.findtext('P[@Name="labelString"]') == ""):
             raise invalidInputException("state without label")
+        stateType = state.findtext('P[@Name="type"]')
+        if stateType != "OR_STATE":
+            if stateType == "AND_STATE":
+                raise invalidInputException("and decomposition of states")
+            elif stateType == "FUNC_STATE":
+                raise invalidInputException("functions")
+            else:
+                raise invalidInputException("state of type %s" % stateType)
 
 def getStateID(ssid, states, state_names):
     if state_names == "id" or ssid == "start" or ssid == "error":
@@ -43,7 +54,7 @@ def getStateID(ssid, states, state_names):
     else:
         return statePrefix + states[ssid]["label"]["name"]
 
-def writeProcess(chart, outfile, state_names, feed_input):    
+def writeProcess(chart, outfile, state_names, feed_input):
     # process declaration
     if state_names == "id":
         outfile.write("process %s%s {\n" % (processPrefix, chart.chartID))
@@ -61,11 +72,11 @@ def writeProcess(chart, outfile, state_names, feed_input):
             outfile.write("const ")
         outfile.write("%s %s" % (varDef["type"], varName))
         if varDef["init"] != None and varDef["init"] != "":
-            outfile.write(" = %s;\n" % varDef["init"])
+            outfile.write(" = %s" % varDef["init"])
         outfile.write(";\n")
 
     # states
-    stateList = [getStateID(ssid, chart.states, state_names) for ssid in states]
+    stateList = [getStateID(ssid, chart.states, state_names) for ssid in chart.states]
     outfile.write("\tstate %s;\n" % ", ".join(stateList))
     outfile.write("\tinit %sstart;\n" % statePrefix)
 
@@ -80,13 +91,12 @@ def writeProcess(chart, outfile, state_names, feed_input):
         # from -> to
         source = getStateID(trans["src"], chart.states, state_names)
         destination = getStateID(trans["dst"], chart.states, state_names)
-        outfile.write("%s%s -> %s%s" % (statePrefix, source, 
-                                        statePrefix, destination))
+        outfile.write("%s -> %s" % (source, destination))
 
         outfile.write((" {"))
 
+        # conditions and negated conditions of transitions with higher priority
         conditions = trans["conditions"].copy()
-        # negated conditions of transitions with higher priority
         for trans2 in chart.transitions:
             if (trans2["src"] == trans["src"] and
             (trans2["srcHierarchy"] < trans["srcHierarchy"] or
@@ -105,7 +115,7 @@ def writeProcess(chart, outfile, state_names, feed_input):
 
         outfile.write(" }\n")
 
-    # during actions (transitions)
+    # during actions
     for stateSSID, state in chart.states.items():
         if state["label"]["du"] != []:
             if not startTrans:
@@ -116,19 +126,14 @@ def writeProcess(chart, outfile, state_names, feed_input):
 
             # from -> to
             stateID = getStateID(stateSSID, chart.states, state_names)
-            outfile.write("%s%s -> %s%s" % (statePrefix, stateID,
-                                            statePrefix, stateID))
+            outfile.write("%s -> %s" % (stateID, stateID))
 
             outfile.write((" {"))
+
             # conditions
             conditions = []
-            for trans in chart.transitions:
-                if trans["src"] == stateSSID:
-                    if trans["conditions"] == []:
-                        conditions.append("false")
-                    else:
-                        for cond in trans["conditions"]:
-                            conditions.append(planarization.negateCondition(cond))
+            for trans in filter(lambda x:x["src"] == stateSSID, chart.transitions):
+                conditions.append(planarization.negateConditions(trans["conditions"]))
             if conditions != []:
                 outfile.write(" guard %s;" % ", ".join(conditions))
 
@@ -154,8 +159,6 @@ def writeProcessFeedInputs(outfile, charts):
     if intVars == [] and byteVars == []:
         return
 
-    outfile.write("byte tick = 1;\n")
-    
     outfile.write("\nprocess feed_inputs {\n")
     outfile.write("\tstate start;\n\tinit start;\n\ttrans\n")
 
@@ -165,7 +168,7 @@ def writeProcessFeedInputs(outfile, charts):
         lastVar = intVars[-1]
     for i in range(0, 8**len(intVars) * 2**len(byteVars)):
         l = i
-        outfile.write("\t\tstart -> start { effect tick = 1, ")
+        outfile.write("\t\tstart -> start { effect ")
         for varName in byteVars:
             outfile.write("%s = %s" % (varName, int(l % 2)))
             l = (l - l % 2) / 2
@@ -196,7 +199,6 @@ def sf2dve(infile, outfile, state_names, feed_input):
     for chart in charts:
         writeProcess(chart, outfile, state_names, feed_input)
 
-    # TODO
     outfile.write("system async;\n\n")
 
 def main():
@@ -217,34 +219,35 @@ def main():
     parser.add_argument("-i", "--feed-input", help="this option adds " +\
                         "process that nondeterministically feeds input " +\
                         "variables from interval <0, 7> (or <0, 1> for " +\
-                        "bytes). Also adds variable tick.", 
+                        "bytes).",
                         action='store_true', default=False)
     args = parser.parse_args()
     
-    try:
-        input_file = args.input
-        output_file = args.output
-        if output_file is None:
-            if input_file == sys.stdin:
-                output_file = sys.stdout
-            else:
-                try:
-                    output_file = open("%s.dve" % input_file.name.rsplit(".", 1)[0], 'w')
-                except IOError as e:
-                    parser.print_usage(file=sys.stderr)
-                    print("Can't open output file: %s" % e, file=sys.stderr)
-                    return 1
-        if input_file != sys.stdin and zipfile.is_zipfile(input_file):
+    input_file = args.input
+    output_file = args.output
+    if output_file is None:
+        if input_file == sys.stdin:
+            output_file = sys.stdout
+        else:
             try:
-                input_file = zipfile.ZipFile(input_file).open("simulink/blockdiagram.xml")
-            except KeyError as e:
-                print("Couldn't find Stateflow XML file in given archive.", file=sys.stderr)
+                output_file = open("%s.dve" % input_file.name.rsplit(".", 1)[0], 'w')
+            except IOError as e:
+                parser.print_usage(file=sys.stderr)
+                print("Can't open output file: %s" % e, file=sys.stderr)
                 return 1
-        elif input_file != sys.stdin:
-            # not zipfile, unfortunately is_zipfile doesn't seek back to
-            # beginning so this needs to be done by hand (lxml.parse doesn't 
-            # seek either)
-            input_file.seek(0)
+    if input_file != sys.stdin and zipfile.is_zipfile(input_file):
+        try:
+            input_file = zipfile.ZipFile(input_file).open("simulink/blockdiagram.xml")
+        except KeyError as e:
+            print("Couldn't find Stateflow XML file in given archive.", file=sys.stderr)
+            return 1
+    elif input_file != sys.stdin:
+        # not zipfile, unfortunately is_zipfile doesn't seek back to
+        # beginning so this needs to be done by hand (lxml.parse doesn't
+        # seek either)
+        input_file.seek(0)
+
+    try:
         sf2dve(input_file, output_file, args.state_names, args.feed_input)
     except notSupportedException as e:
         print("Following is not supported: %s" % e, file=sys.stderr)

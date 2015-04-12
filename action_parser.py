@@ -106,12 +106,14 @@ def p_block_items(p):
                    | statement block_items
                    | declaration
                    | statement"""
-    if p[1] is not None and len(p) == 2:
-        p[0] = [p[1]]
-    if p[1] is not None and len(p) == 3:
-        p[0] = [p[1]] + p[2]
+    if isinstance(p[1], str):
+        p[1] = [p[1]]
     if p[1] is None and len(p) == 3:
         p[0] = p[2]
+    elif p[1] is not None and len(p) == 2:
+        p[0] = p[1]
+    else:
+        p[0] = p[1] + p[2]
 
 def p_declaration(p):
     """declaration : type_specifiers ';'

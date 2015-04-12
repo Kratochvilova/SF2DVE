@@ -370,6 +370,11 @@ def makePlanarized(chart):
                 "srcHierarchy":srcHierarchy, "transType":transType,
                 "order":order})
 
+    # storing transition from state "start" to state "error"
+    planarizedChart.transitions.append({"ssid":"start", "src":"start",
+    "dst":"error", "conditions":[], "actions": [], "srcHierarchy":1,
+    "transType":0, "order":0})
+
     # storing variables
     for varEl in chart.findall(".//data"):
         planarizedChart.addVariable(varEl)
