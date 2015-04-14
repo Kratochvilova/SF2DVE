@@ -6,7 +6,7 @@ Created on Sat Mar 15 21:30:39 2014
 @author: pavla
 """
 
-import sys, re, planarization, zipfile
+import sys, re, zipfile
 from lxml import etree
 from extendedExceptions import notSupportedException, invalidInputException
 
@@ -55,6 +55,7 @@ def getStateID(ssid, states, state_names):
         return statePrefix + states[ssid]["label"]["name"]
 
 def writeProcess(chart, outfile, state_names, feed_input):
+    from planarization import negateConditions
     # process declaration
     if state_names == "id":
         outfile.write("process %s%s {\n" % (processPrefix, chart.chartID))
@@ -105,7 +106,7 @@ def writeProcess(chart, outfile, state_names, feed_input):
             (trans2["srcHierarchy"] == trans["srcHierarchy"] and
             (trans2["transType"] == trans["transType"] and
             trans2["order"] < trans["order"])))):
-                conditions.append(planarization.negateConditions(trans2["conditions"]))
+                conditions.append(negateConditions(trans2["conditions"]))
         if conditions != []:
             outfile.write(" guard %s;" % ", ".join(conditions))
 
@@ -133,7 +134,7 @@ def writeProcess(chart, outfile, state_names, feed_input):
             # conditions
             conditions = []
             for trans in filter(lambda x:x["src"] == stateSSID, chart.transitions):
-                conditions.append(planarization.negateConditions(trans["conditions"]))
+                conditions.append(negateConditions(trans["conditions"]))
             if conditions != []:
                 outfile.write(" guard %s;" % ", ".join(conditions))
 
@@ -183,6 +184,7 @@ def writeProcessFeedInputs(outfile, charts):
     outfile.write("}\n\n")
 
 def sf2dve(infile, outfile, state_names, feed_input):
+    from planarization import makePlanarized
     try:
         stateflowEtree = etree.parse(infile)
     except:
@@ -191,7 +193,7 @@ def sf2dve(infile, outfile, state_names, feed_input):
 
     charts = []
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
-        charts.append(planarization.makePlanarized(chart))
+        charts.append(makePlanarized(chart))
 
     if feed_input:
         writeProcessFeedInputs(outfile, charts)
