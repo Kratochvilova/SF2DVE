@@ -1,4 +1,3 @@
-#!/bin/env python3
 # -*- coding: utf-8 -*-
 
 # This file is part of sf2dve.
@@ -23,6 +22,7 @@ Created on Thu Sep 25 13:21:52 2014
 """
 
 import re, state_parser, transition_parser, action_parser, condition_parser
+from copy import copy
 from extendedExceptions import notSupportedException
 
 # labels - parsed labels of states and transitions
@@ -307,7 +307,7 @@ def makePlanarized(chart):
         # source state
         if srcSSID != "start":
             duActions = []
-            exActions = labelCache.getState(srcSSID)["ex"].copy()
+            exActions = copy(labelCache.getState(srcSSID)["ex"])
             exiting = True
             src = chart.find('.//state[@SSID="%s"]' % srcSSID)
             srcParent = src.getparent().getparent()
@@ -322,7 +322,7 @@ def makePlanarized(chart):
             transLabel["ca"] = duActions + transLabel["ca"]
             transLabel["ta"] = exActions + transLabel["ta"]
 
-        enActions = labelCache.getState(dstSSID)["en"].copy()
+        enActions = copy(labelCache.getState(dstSSID)["en"]
         dst = chart.find('.//state[@SSID="%s"]' % dstSSID)
         dstParent = dst.getparent().getparent()
         while dstParent.tag == "state" and dstParent.get("SSID") != transParentSSID:

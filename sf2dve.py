@@ -1,4 +1,4 @@
-#!/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 # This file is part of sf2dve.
@@ -24,6 +24,7 @@ Created on Sat Mar 15 21:30:39 2014
 
 import sys, re, zipfile
 from lxml import etree
+from copy import copy
 from extendedExceptions import notSupportedException, invalidInputException
 
 processPrefix = "process_"
@@ -113,7 +114,7 @@ def writeProcess(chart, outfile, state_names, feed_input):
         outfile.write((" {"))
 
         # conditions and negated conditions of transitions with higher priority
-        conditions = trans["conditions"].copy()
+        conditions = copy(trans["conditions"])
         for trans2 in chart.transitions:
             if (trans2["src"] == trans["src"] and
             (trans2["srcHierarchy"] < trans["srcHierarchy"] or

@@ -1,64 +1,64 @@
-sf2dve - Stateflow to DVE conversion tool
-=========================================
+sf2dve - Stateflow to DVE transformation tool
+=============================================
 
-Licence
-Copyright
+Licence: GNU LGPL 2.1 or any later version (more in LGPL.txt)
+Copyright: Pavla Kratochvilova, 2015
 
-Nastroj, kterej prevadi Stateflow diagramy (splnujici urcita omezeni) Simulinku verze 2014b do formatu DVE, ktery je pouzivany model checkerem DiVinE (odkaz). To umoznuje automatizovanou formalni verifikaci prevedeneho Stateflow modelu. Vzhledem k uzavrenosti Stateflow vsak nelze zarucit formalni korektnost prevodu. Algoritmus prevodu byl vytvaren na zaklade neformalni specifikace v User's Guide (odkaz) a chovani Stateflow.
-Umi vzit Stateflow diagram specifikovany jako xml dokument nebo ve formatu slx, vygeneruje DVE dokument (na standard/tni vystup nebo do souboru) odpovidajici danemu Stateflow.
+Overview
+
+	Sf2dve is a tool transforming Stateflow diagrams into DVE,
+	the native input language of DiVinE model checker
+	(https://divine.fi.muni.cz/), in order to enable automated
+	formal verification of the Stateflow systems. The program takes
+	either MathWorks SLX file format or XML document and generates
+	DVE source code to either standard output or a file.
+
+	Because of the Stateflow format being proprietary, formal
+	correctness of the transformation cannot be guaranteed.
+	The algorithm is based on informal specification contained in User's
+	Guide (http://www.mathworks.com/help/pdf_doc/stateflow/sf_ug.pdf)
+	and on observations of Stateflow behaviour.
 
 Supported Stateflow features:
-	stavy
-		entry akce
-		during akce
-		exit akce
-	prechody
-		podminky
-		podminkove akce
-		prechodove akce
-	hierarchii stavu a prechody mezi cimkoliv
-	c as action language
-	promenne celociselnych typu (a boolean)
+
+	* states with 'entry', 'during' and 'exit' actions
+	* transitions with conditions, condition actions, transition actions
+	* hierarchy of the states
+	* labelled default transitions
+	* implicit tick event
+	* variables of integer and boolean types
+	* c as action language
 
 Unsupported Stateflow features:
-	eventy
-	on event akce, bind akce
-	eventy podminene prechody
-	broadcasting eventu
-	promenne typu single a double
-	funkce, graficky blbosti
-	paralelni stavy
-	connective junctions
-	history junctions
-	MATLAB as action language
 
-Umi taky soucasne vygenetovat pomocny proces pro testovani korektnosti prekladu, kde se nedeterministicky naplnuji vsechny promenne oznacene jako input.
+	* events (including 'on event' actions, transitions guarded with
+	  events, event broadcasting)
+	* bind actions
+	* AND decomposition of states
+	* connective and history junctions
+	* functions, boxes
+	* variables of float types
+	* MATLAB as action language
 
-Prerekvizity:
-sf2dve je napsany v pythonu3 a pouziva knihovny lxml a ply. 
-Nasledujici balicky je nutne nainstalovat na fedore pro spusteni:
-	python3
-	python3-lxml
-	python3-ply
-Na debianu:
-	TODO
+Dependencies:
 
-Priklady pouziti:
-python3 sf2dve lift.xml lift.dve
-vice detailu se dozvite pustenim prikazu python3 sf2dve --help
+	Sf2dve is written in python3 and uses libraries lxml a ply.
+	Following fedora or debian packages are required for running sf2dve:
+		* python3 (version >=3.2)
+		* python3-lxml
+		* python3-ply
 
+Usage examples:
 
+	python3 sf2dve lift.xml lift.dve
 
-Odkazani se na BP
+	Full usage: python3 sf2dve --help
 
+Testing sf2dve:
 
+	The program is also able to generate an additional process for
+	testing correctness of the transformation. Variables with the scope
+	'input' are then nondeterministically assigned random numbers.
 
-
-
-
-
-
-
-
-
-
+This tool was created as part of a bachelor's thesis on Masaryk
+University Faculty of Informatics, Brno.
