@@ -50,9 +50,9 @@ Dependencies:
 
 Usage examples:
 
-	python3 sf2dve lift.xml lift.dve
+	python3 sf2dve.py lift.xml lift.dve
 
-	Full usage: python3 sf2dve --help
+	Full usage: python3 sf2dve.py --help
 
 Testing sf2dve:
 

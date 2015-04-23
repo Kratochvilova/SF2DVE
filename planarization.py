@@ -306,9 +306,15 @@ def makePlanarized(chart):
         # updating condition actions with during actions of superstates of the
         # source state
         if srcSSID != "start":
-            duActions = []
-            exActions = copy(labelCache.getState(srcSSID)["ex"])
-            exiting = True
+            srcLabel = labelCache.getState(srcSSID)
+            if srcSSID == transParentSSID:
+                duActions = copy(srcLabel["du"])
+                exActions = []
+                exiting = False
+            else:
+                duActions = []
+                exActions = copy(srcLabel["ex"])
+                exiting = True
             src = chart.find('.//state[@SSID="%s"]' % srcSSID)
             srcParent = src.getparent().getparent()
             while srcParent.tag == "state":
