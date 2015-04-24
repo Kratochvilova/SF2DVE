@@ -64,6 +64,11 @@ class LabelCache:
     def getTransition(self, key):
         return self._get(key, "transition")
 
+def appendSemicolon(string):
+    if string.strip()[-1] == ';':
+        return string
+    return string + ';'
+
 def getStateName(labelString):
     match = re.match(r"([^\n]*?)/", labelString)
     if match is not None:
@@ -101,6 +106,7 @@ def parseStateLabel(labelString, ssid):
             raise notSupportedException('"bind" actions')
         if "on" in keywordPart:
             raise notSupportedException('"on event" actions')
+        actionPart = appendSemicolon(actionPart)
         (parsedActionPart, newVars) = action_parser.parse(actionPart,
                                                           "state_%s_" % ssid,
                                                           labelVariables)
@@ -124,11 +130,13 @@ def parseTransitionLabel(labelString, ssid):
     if parsedLabel[1] is not None:
         labelDict["condition"] = condition_parser.parse(parsedLabel[1]).strip()
     if parsedLabel[2] is not None:
+        parsedLabel[2] = appendSemicolon(parsedLabel[2])
         (labelDict["ca"], newVars) = action_parser.parse(parsedLabel[2],
                                                          "trans_%s_" % ssid,
                                                          labelVariables)
         labelVariables.update(newVars)
     if parsedLabel[3] is not None:
+        parsedLabel[3] = appendSemicolon(parsedLabel[3])
         (labelDict["ta"], newVars) = action_parser.parse(parsedLabel[3],
                                                          "trans_%s_" % ssid,
                                                          labelVariables)

@@ -53,7 +53,7 @@ tokens = (["COLON_ASSIGN", "RIGHT_ASSIGN", "LEFT_ASSIGN", "ADD_ASSIGN",
            "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN", "RIGHT_OP", "LEFT_OP",
            "INC_OP", "DEC_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP",
            "NE_OP", "LBRACE", "RBRACE", "LBRACKET", "RBRACKET", "NUMBER",
-           "IDENTIFIER"] + list(keywords.values()))
+           "IDENTIFIER", "NEWLINE"] + list(keywords.values()))
 
 literals = ";,:=()&!~-+*/%<>^|?@"
 
@@ -91,9 +91,10 @@ def t_IDENTIFIER(t):
     t.type = keywords.get(t.value, "IDENTIFIER")
     return t
 
-def t_newline(t):
-    r"\n+"
-    t.lexer.lineno += len(t.value)
+def t_NEWLINE(t):
+    r"\n"
+    t.lexer.lineno += 1
+    return t
 
 def t_error(t):
     raise TypeError("Unknown text '%s'" % t.value)
@@ -132,7 +133,9 @@ def p_block_items(p):
 
 def p_declaration(p):
     """declaration : type_specifiers ';'
-                   | type_specifiers init_declarator_list ';'"""
+                   | type_specifiers init_declarator_list ';'
+                   | type_specifiers NEWLINE
+                   | type_specifiers init_declarator_list NEWLINE"""
     if len(p) == 4:
         const = False
         tempType = None
@@ -249,7 +252,9 @@ def p_statement(p):
 
 def p_expression_statement(p):
     """expression_statement : ';'
-                            | expression ';'"""
+                            | expression ';'
+                            | NEWLINE
+                            | expression NEWLINE"""
     if len(p) == 3:
         p[0] = p[1]
 
