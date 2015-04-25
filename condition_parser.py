@@ -22,6 +22,7 @@ Created on Sun Nov  9 09:35:20 2014
 """
 
 from ply import lex, yacc
+import os.path
 
 tokens = ("RIGHT_OP", "LEFT_OP", "AND_OP", "OR_OP", "LE_OP", "GE_OP", "EQ_OP",
           "NE_OP", "LBRACKET", "RBRACKET", "NUMBER", "IDENTIFIER")
@@ -187,8 +188,12 @@ def p_error(p):
         raise ValueError("Unknown error")
     raise ValueError("Syntax error, line %s: %s" % (p.lineno, p.type))
 
-lexer = lex.lex()
-parser = yacc.yacc()
+directory = os.path.join(os.path.dirname(__file__), 
+                         "parser_tables", 
+                         os.path.basename(__file__).rsplit('.', 1)[0])
+
+lexer = lex.lex(debug=False, optimize=True, outputdir=directory)
+parser = yacc.yacc(debug=False, optimize=True, outputdir=directory)
 
 def parse(text, lexer=lexer):
     return (parser.parse(text, lexer))

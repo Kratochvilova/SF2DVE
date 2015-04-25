@@ -22,6 +22,7 @@ Created on Sun Nov  9 09:35:20 2014
 """
 
 from ply import lex, yacc
+import os.path
 
 newVars = None
 prefix = None
@@ -455,8 +456,12 @@ def p_error(p):
         raise ValueError("Unknown error")
     raise ValueError("Syntax error, line %s: %s" % (p.lineno, p.type))
 
-lexer = lex.lex()
-parser = yacc.yacc()
+directory = os.path.join(os.path.dirname(__file__), 
+                         "parser_tables", 
+                         os.path.basename(__file__).rsplit('.', 1)[0])
+
+lexer = lex.lex(debug=False, optimize=True, outputdir=directory)
+parser = yacc.yacc(debug=False, optimize=True, outputdir=directory)
 
 def parse(text, tempPrefix="", variables={}, lexer=lexer):    
     global prefix
