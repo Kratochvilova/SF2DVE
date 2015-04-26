@@ -22,7 +22,7 @@ Created on Sun Nov  9 09:35:20 2014
 """
 
 from ply import lex, yacc
-import os.path
+import os
 
 newVars = None
 prefix = None
@@ -125,12 +125,16 @@ def p_block_items(p):
                    | statement"""
     if isinstance(p[1], str):
         p[1] = [p[1]]
-    if p[1] is None and len(p) == 3:
-        p[0] = p[2]
-    elif p[1] is not None and len(p) == 2:
-        p[0] = p[1]
+    if len(p) == 3:
+        if p[1] is None:
+            p[0] = p[2]
+        else:
+            p[0] = p[1] + p[2]
     else:
-        p[0] = p[1] + p[2]
+        if p[1] is None:
+            p[0] = []
+        else:
+            p[0] = p[1]
 
 def p_declaration(p):
     """declaration : type_specifiers ';'
@@ -459,6 +463,10 @@ def p_error(p):
 directory = os.path.join(os.path.dirname(__file__), 
                          "parser_tables", 
                          os.path.basename(__file__).rsplit('.', 1)[0])
+try:
+    os.makedirs(directory, exist_ok=True)
+except OSError:
+    pass
 
 lexer = lex.lex(debug=False, optimize=True, outputdir=directory)
 parser = yacc.yacc(debug=False, optimize=True, outputdir=directory)

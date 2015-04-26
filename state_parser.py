@@ -22,7 +22,7 @@ Created on Thu Oct 23 15:51:31 2014
 """
 
 from ply import lex, yacc
-import os.path
+import os
 
 keywords = {
    "en" : "EN",
@@ -161,6 +161,10 @@ def p_error(p):
 directory = os.path.join(os.path.dirname(__file__), 
                          "parser_tables", 
                          os.path.basename(__file__).rsplit('.', 1)[0])
+try:
+    os.makedirs(directory, exist_ok=True)
+except OSError:
+    pass
 
 lexer = lex.lex(debug=False, optimize=True, outputdir=directory)
 parser = yacc.yacc(debug=False, optimize=True, outputdir=directory)

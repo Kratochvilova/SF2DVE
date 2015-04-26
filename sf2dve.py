@@ -57,11 +57,11 @@ def checkInput(stateflowEtree):
         stateType = state.findtext('P[@Name="type"]')
         if stateType != "OR_STATE":
             if stateType == "AND_STATE":
-                raise invalidInputException("and decomposition of states")
+                raise notSupportedException("and decomposition of states")
             elif stateType == "FUNC_STATE":
-                raise invalidInputException("functions")
+                raise notSupportedException("functions")
             else:
-                raise invalidInputException("state of type %s" % stateType)
+                raise notSupportedException("state of type %s" % stateType)
 
 def getStateID(ssid, states, state_names):
     if state_names == "id" or ssid == "start" or ssid == "error":
