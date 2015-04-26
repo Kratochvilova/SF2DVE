@@ -28,6 +28,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("model", type=argparse.FileType('r'))
     parser.add_argument("input", type=argparse.FileType('r'))
+    parser.add_argument("output", type=argparse.FileType('w'))
     args = parser.parse_args()
     
     byteVars = []
@@ -77,8 +78,32 @@ def main():
         inputTrace += str(maxVarCom + 1) + ","
     
     inputTrace = inputTrace[:-1]
+
+    p = subprocess.Popen(["divine", "simulate", inputTrace, args.model.name], 
+                         stdout=subprocess.PIPE, stderr=open("/dev/null", "w"))
     
-    subprocess.call(["divine", "simulate", inputTrace, args.model.name])
+    blocks = []
+    block = []
+    first = True
+    for line in p.stdout.readlines():
+        line = line.decode()
+        block.append(line)
+        if line == "\n":
+            if not block[0].startswith("=> feed_inputs") and not first:
+                blocks.append(block)
+            block = []
+            first = False
+
+    blocks = blocks[1:]
+
+    output_sequence = ""
+    for block in blocks:
+        for line in block:
+            if line.startswith("process_"):
+                number = re.search("ControlVector = ([^,]+)", line).group(1)
+                output_sequence += number + "\n"
+
+    args.output.write(output_sequence)
 
 if __name__ == "__main__":
     sys.exit(main())
