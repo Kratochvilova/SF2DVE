@@ -26,9 +26,15 @@ import sys, subprocess, re
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("model", type=argparse.FileType('r'))
-    parser.add_argument("input", type=argparse.FileType('r'))
-    parser.add_argument("output", type=argparse.FileType('w'))
+    parser.add_argument("model", help="DVE file; with additional process " +\
+                        "feed_inputs", type=argparse.FileType('r'))
+    parser.add_argument("input", help="file with input sequence for each " +\
+                        "input variable. Each variable is on new line and " +\
+                        "in format: variable_name = [n1 n2 n3 ...]", 
+                        type=argparse.FileType('r'))
+    parser.add_argument("output", help="output file for storing sequence " +\
+                        "of values of variable ControlVector", 
+                        type=argparse.FileType('w'))
     args = parser.parse_args()
     
     byteVars = []

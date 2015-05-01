@@ -225,7 +225,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="input Stateflow slx or XML file",
                         type=argparse.FileType('rb'))
-    parser.add_argument("output", help="output DVE file, if not set, name " +\
+    parser.add_argument("output", help="output DVE file; if not set, name " +\
                         "of input file with dve suffix will be used",
                         type=argparse.FileType('w'), nargs='?')
     parser.add_argument("-n", "--state-names", help="as name of state " +\

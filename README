@@ -27,7 +27,7 @@ Supported Stateflow features:
 	* labelled default transitions
 	* implicit tick event
 	* variables of integer and boolean types
-	* c as action language
+	* C as action language
 
 Unsupported Stateflow features:
 
@@ -50,6 +50,7 @@ Dependencies:
 
 Usage examples:
 
+	python3 sf2dve.py lift.slx lift.dve
 	python3 sf2dve.py lift.xml lift.dve
 
 	Full usage: python3 sf2dve.py --help
