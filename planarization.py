@@ -336,7 +336,10 @@ def makePlanarized(chart):
             transLabel["ca"] = duActions + transLabel["ca"]
             transLabel["ta"] = exActions + transLabel["ta"]
 
-        enActions = copy(labelCache.getState(dstSSID)["en"])
+        if dstSSID == transParentSSID:
+            enActions = []
+        else:
+            enActions = copy(labelCache.getState(dstSSID)["en"])
         dst = chart.find('.//state[@SSID="%s"]' % dstSSID)
         dstParent = dst.getparent().getparent()
         while dstParent.tag == "state" and dstParent.get("SSID") != transParentSSID:
