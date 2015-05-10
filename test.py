@@ -23,6 +23,9 @@ Created on Sat Dec 27 14:10:02 2014
 
 import sys, subprocess, re
 
+BYTE_SIZE = 2
+INT_SIZE = 8
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -30,51 +33,57 @@ def main():
                         "feed_inputs", type=argparse.FileType('r'))
     parser.add_argument("input", help="file with input sequence for each " +\
                         "input variable. Each variable is on new line and " +\
-                        "in format: variable_name = [n1 n2 n3 ...]", 
+                        "in format: variable_name = [n1 n2 n3 ...]",
                         type=argparse.FileType('r'))
     parser.add_argument("output", help="output file for storing sequence " +\
-                        "of values of variable ControlVector", 
+                        "of values of given variable",
                         type=argparse.FileType('w'))
+    parser.add_argument("variable", help="name of the output variable",
+                        type=str)
     args = parser.parse_args()
-    
+
+    model = ''.join(args.model.readlines())
+
     byteVars = []
     intVars = []
-    
+
     for line in args.input:
-        varName = re.search(r"(.+)\[", line).group(1).strip()
+        varName = re.search(r"(.+?)(\[|=)", line).group(1).strip()
         varInputs = re.search(r"\[(.+)\]", line).group(1).strip().split()
-        
-        for varInput in varInputs:
-            intVar = False
-            if varInput != '0' and varInput != '1':
-                intVar = True
-                break
-        if intVar:
+
+        varType = re.search(r"(.*)%s" % varName, model).group(1).strip()
+        if varType == "byte":
+            byteVars.append((varName, varInputs))
+        elif varType == "int":
             intVars.append((varName, varInputs))
         else:
-            byteVars.append((varName, varInputs))
-    
+            print("Wrong variable type in the model: %s" % varType)
+
     if byteVars != []:
         maxInput = len(byteVars[0][1])
     else:
         maxInput = len(intVars[0][1])    
-    
+
+    byteVars = sorted(byteVars, key=lambda x:model.find(x[0]))
+    intVars = sorted(intVars, key=lambda x:model.find(x[0]))
+    args.model.seek(0, 0)
+
     inputTrace = "--trace=1,"
-    maxVarCom = 8**len(intVars) * 2**len(byteVars)
-    firstCatched = False    
-    
+    maxVarCom = INT_SIZE**len(intVars) * BYTE_SIZE**len(byteVars)
+    firstCatched = False
+
     for i in range(0, maxInput):
         for j in range(0, maxVarCom):
             l = j
             match = True
             for varName, varInputs in byteVars:
-                if varInputs[i] != str(int(l % 2)):
+                if varInputs[i] != str(int(l % BYTE_SIZE)):
                     match = False
-                l = (l - l % 2) / 2
+                l = (l - l % BYTE_SIZE) / BYTE_SIZE
             for varName, varInputs in intVars:
-                if varInputs[i] != str(int(l % 8)):
+                if varInputs[i] != str(int(l % INT_SIZE)):
                     match = False
-                l = (l - l % 8) / 8
+                l = (l - l % INT_SIZE) / INT_SIZE
             if match:
                 if firstCatched:
                     inputTrace += str(j + 1) + ","
@@ -82,23 +91,25 @@ def main():
                     firstCatched = True
                 break
         inputTrace += str(maxVarCom + 1) + ","
-    
+
     inputTrace = inputTrace[:-1]
 
-    p = subprocess.Popen(["divine", "simulate", inputTrace, args.model.name], 
+    p = subprocess.Popen(["divine", "simulate", "--no-reduce", inputTrace, args.model.name],
                          stdout=subprocess.PIPE, stderr=open("/dev/null", "w"))
-    
+
     blocks = []
     block = []
-    first = True
+    second = False
     for line in p.stdout.readlines():
         line = line.decode()
         block.append(line)
         if line == "\n":
-            if not block[0].startswith("=> feed_inputs") and not first:
+            if second:
+                second = False
+            else:
                 blocks.append(block)
+                second = True
             block = []
-            first = False
 
     blocks = blocks[1:]
 
@@ -106,7 +117,7 @@ def main():
     for block in blocks:
         for line in block:
             if line.startswith("process_"):
-                number = re.search("ControlVector = ([^,]+)", line).group(1)
+                number = re.search(args.variable + " = ([^,]+)", line).group(1)
                 output_sequence += number + "\n"
 
     args.output.write(output_sequence)

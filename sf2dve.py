@@ -29,6 +29,8 @@ from extendedExceptions import notSupportedException, invalidInputException
 
 processPrefix = "process_"
 statePrefix = "state_"
+BYTE_SIZE = 2
+INT_SIZE = 8
 
 # Checks action language, number of machines and state labels.
 def checkInput(stateflowEtree):
@@ -184,17 +186,17 @@ def writeProcessFeedInputs(outfile, charts):
         lastVar = byteVars[-1]
     else:
         lastVar = intVars[-1]
-    for i in range(0, 8**len(intVars) * 2**len(byteVars)):
+    for i in range(0, INT_SIZE**len(intVars) * BYTE_SIZE**len(byteVars)):
         l = i
         outfile.write("\t\tstart -> start { effect ")
         for varName in byteVars:
-            outfile.write("%s = %s" % (varName, int(l % 2)))
-            l = (l - l % 2) / 2
+            outfile.write("%s = %s" % (varName, int(l % BYTE_SIZE)))
+            l = (l - l % BYTE_SIZE) / BYTE_SIZE
             if varName != lastVar:
                 outfile.write(", ")
         for varName in intVars:
-            outfile.write("%s = %s" % (varName, int(l % 8)))
-            l = (l - l % 8) / 8
+            outfile.write("%s = %s" % (varName, int(l % INT_SIZE)))
+            l = (l - l % INT_SIZE) / INT_SIZE
             if varName != lastVar:
                 outfile.write(", ")
         outfile.write("; }\n")
@@ -223,7 +225,7 @@ def sf2dve(infile, outfile, state_names, feed_input):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("input", help="input Stateflow slx or XML file",
+    parser.add_argument("input", help="input Stateflow SLX or XML file",
                         type=argparse.FileType('rb'))
     parser.add_argument("output", help="output DVE file; if not set, name " +\
                         "of input file with dve suffix will be used",
@@ -235,10 +237,10 @@ def main():
                         "id (default) when generating input for DiVinE. " +\
                         "Also affects names of processes.",
                         choices=["id", "hierarchical", "name"], default="id")
-    parser.add_argument("-i", "--feed-input", help="this option adds " +\
+    parser.add_argument("-i", "--feed-input", help=("this option adds " +\
                         "process that nondeterministically feeds input " +\
-                        "variables from interval <0, 7> (or <0, 1> for " +\
-                        "bytes).",
+                        "variables from interval <0, %d> (or <0, %d> for " +\
+                        "bytes).") % (INT_SIZE-1, BYTE_SIZE-1),
                         action='store_true', default=False)
     args = parser.parse_args()
     
