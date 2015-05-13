@@ -29,8 +29,6 @@ from extendedExceptions import notSupportedException, invalidInputException
 
 processPrefix = "process_"
 statePrefix = "state_"
-BYTE_SIZE = 2
-INT_SIZE = 8
 
 # Checks action language, number of machines and state labels.
 def checkInput(stateflowEtree):
@@ -73,7 +71,7 @@ def getStateID(ssid, states, state_names):
     else:
         return statePrefix + states[ssid]["label"]["name"]
 
-def writeProcess(chart, outfile, state_names, feed_input):
+def writeProcess(chart, outfile, state_names, input_values):
     from planarization import negateConditions
     # process declaration
     if state_names == "id":
@@ -83,7 +81,7 @@ def writeProcess(chart, outfile, state_names, feed_input):
 
     # variables
     for varName, varDef in chart.variables.items():
-        if feed_input and varDef["scope"] == "input":
+        if input_values is not None and varDef["scope"] == "input":
             continue
         outfile.write("\t")
         if varDef["scope"] == "input":
@@ -164,7 +162,14 @@ def writeProcess(chart, outfile, state_names, feed_input):
 
     outfile.write("}\n\n")
 
-def writeProcessFeedInputs(outfile, charts):
+def writeProcessFeedInputs(outfile, charts, input_values):
+    byteMin = 0
+    byteMax = 1
+    intMin = input_values[0]
+    intMax = input_values[1]
+    byteSize = byteMax - byteMin + 1
+    intSize = intMax - intMin + 1
+    
     byteVars = []
     intVars = []
     for chart in charts:
@@ -186,23 +191,23 @@ def writeProcessFeedInputs(outfile, charts):
         lastVar = byteVars[-1]
     else:
         lastVar = intVars[-1]
-    for i in range(0, INT_SIZE**len(intVars) * BYTE_SIZE**len(byteVars)):
+    for i in range(0, intSize**len(intVars) * byteSize**len(byteVars)):
         l = i
         outfile.write("\t\tstart -> start { effect ")
         for varName in byteVars:
-            outfile.write("%s = %s" % (varName, int(l % BYTE_SIZE)))
-            l = (l - l % BYTE_SIZE) / BYTE_SIZE
+            outfile.write("%s = %s" % (varName, int(l % byteSize + byteMin)))
+            l = (l - l % byteSize) / byteSize
             if varName != lastVar:
                 outfile.write(", ")
         for varName in intVars:
-            outfile.write("%s = %s" % (varName, int(l % INT_SIZE)))
-            l = (l - l % INT_SIZE) / INT_SIZE
+            outfile.write("%s = %s" % (varName, int(l % intSize) + intMin))
+            l = (l - l % intSize) / intSize
             if varName != lastVar:
                 outfile.write(", ")
         outfile.write("; }\n")
     outfile.write("}\n\n")
 
-def sf2dve(infile, outfile, state_names, feed_input):
+def sf2dve(infile, outfile, state_names, input_values):
     from planarization import makePlanarized
     try:
         stateflowEtree = etree.parse(infile)
@@ -214,11 +219,11 @@ def sf2dve(infile, outfile, state_names, feed_input):
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
         charts.append(makePlanarized(chart))
 
-    if feed_input:
-        writeProcessFeedInputs(outfile, charts)
+    if input_values is not None:
+        writeProcessFeedInputs(outfile, charts, input_values)
 
     for chart in charts:
-        writeProcess(chart, outfile, state_names, feed_input)
+        writeProcess(chart, outfile, state_names, input_values)
 
     outfile.write("system async;\n\n")
 
@@ -237,11 +242,17 @@ def main():
                         "id (default) when generating input for DiVinE. " +\
                         "Also affects names of processes.",
                         choices=["id", "hierarchical", "name"], default="id")
-    parser.add_argument("-i", "--feed-input", help=("this option adds " +\
+    parser.add_argument("-f", "--feed-input", help="this option adds " +\
                         "process that nondeterministically feeds input " +\
-                        "variables from interval <0, %d> (or <0, %d> for " +\
-                        "bytes).") % (INT_SIZE-1, BYTE_SIZE-1),
-                        action='store_true', default=False)
+                        "variables with values from given interval, " +\
+                        "<0,1> for bytes, <0,7> for integers.", 
+                        action='store_true')
+    parser.add_argument("-i", "--input-values", help="Similar to the option" +\
+                        "--feed-inputs. For bytes the interval is <0,1>, " +\
+                        "For integers the interval is to be specified with " +\
+                        "the marginal numbers in format: 0,7 If the first " +\
+                        "number is negative, use format: ' -7,7'", type=str, 
+                        default=None)
     args = parser.parse_args()
     
     input_file = args.input
@@ -253,13 +264,12 @@ def main():
             try:
                 output_file = open("%s.dve" % input_file.name.rsplit(".", 1)[0], 'w')
             except IOError as e:
-                parser.print_usage(file=sys.stderr)
                 print("Can't open output file: %s" % e, file=sys.stderr)
                 return 1
     if input_file != sys.stdin and zipfile.is_zipfile(input_file):
         try:
             input_file = zipfile.ZipFile(input_file).open("simulink/blockdiagram.xml")
-        except KeyError as e:
+        except KeyError:
             print("Couldn't find Stateflow XML file in given archive.", file=sys.stderr)
             return 1
     elif input_file != sys.stdin:
@@ -268,8 +278,28 @@ def main():
         # seek either)
         input_file.seek(0)
 
+    if args.input_values is not None:
+        input_values = args.input_values.split(',')
+        if len(input_values) != 2:
+            print("Incorrect format of the interval: too many numbers", 
+                  file=sys.stderr)
+            return 1
+        try:
+            input_values = [int(input_values[0]), int(input_values[1])]
+        except ValueError:
+            print("Incorrect format of the interval: numbers not recognized", 
+                  file=sys.stderr)
+            return 1
+        if input_values[0] > input_values[1]:
+            print("Incorrect format of the interval: the first number must " +\
+            "be lower then the second", file=sys.stderr)
+            return 1
+    elif args.feed_input is not None:
+        input_values = [0, 7]
+    else: input_values = None
+
     try:
-        sf2dve(input_file, output_file, args.state_names, args.feed_input)
+        sf2dve(input_file, output_file, args.state_names, input_values)
     except notSupportedException as e:
         print("Following is not supported: %s" % e, file=sys.stderr)
         return 1

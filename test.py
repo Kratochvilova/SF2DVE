@@ -23,9 +23,6 @@ Created on Sat Dec 27 14:10:02 2014
 
 import sys, subprocess, re
 
-BYTE_SIZE = 2
-INT_SIZE = 8
-
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -43,6 +40,13 @@ def main():
     args = parser.parse_args()
 
     model = ''.join(args.model.readlines())
+
+    byteMin = 0
+    byteMax = 1
+    intMin = 0
+    intMax = 7
+    byteSize = byteMax - byteMin + 1
+    intSize = intMax - intMin + 1
 
     byteVars = []
     intVars = []
@@ -69,7 +73,7 @@ def main():
     args.model.seek(0, 0)
 
     inputTrace = "--trace=1,"
-    maxVarCom = INT_SIZE**len(intVars) * BYTE_SIZE**len(byteVars)
+    maxVarCom = intSize**len(intVars) * byteSize**len(byteVars)
     firstCatched = False
 
     for i in range(0, maxInput):
@@ -77,13 +81,13 @@ def main():
             l = j
             match = True
             for varName, varInputs in byteVars:
-                if varInputs[i] != str(int(l % BYTE_SIZE)):
+                if varInputs[i] != str(int(l % byteSize + byteMin)):
                     match = False
-                l = (l - l % BYTE_SIZE) / BYTE_SIZE
+                l = (l - l % byteSize) / byteSize
             for varName, varInputs in intVars:
-                if varInputs[i] != str(int(l % INT_SIZE)):
+                if varInputs[i] != str(int(l % intSize + intMin)):
                     match = False
-                l = (l - l % INT_SIZE) / INT_SIZE
+                l = (l - l % intSize) / intSize
             if match:
                 if firstCatched:
                     inputTrace += str(j + 1) + ","
