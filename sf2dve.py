@@ -294,9 +294,10 @@ def main():
             print("Incorrect format of the interval: the first number must " +\
             "be lower then the second", file=sys.stderr)
             return 1
-    elif args.feed_input is not None:
+    elif args.feed_input:
         input_values = [0, 7]
-    else: input_values = None
+    else: 
+        input_values = None
 
     try:
         sf2dve(input_file, output_file, args.state_names, input_values)
