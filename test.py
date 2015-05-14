@@ -26,7 +26,7 @@ import sys, subprocess, re
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("model", help="DVE file; with additional process " +\
+    parser.add_argument("model", help="DVE file extended with process " +\
                         "feed_inputs", type=argparse.FileType('r'))
     parser.add_argument("input", help="file with input sequence for each " +\
                         "input variable. Each variable is on new line and " +\

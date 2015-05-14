@@ -22,7 +22,7 @@ Overview
 Supported Stateflow features:
 
 	* states with 'entry', 'during' and 'exit' actions
-	* transitions with conditions, condition actions, transition actions
+	* transitions with conditions, 'condition' and 'transition' actions
 	* hierarchy of the states
 	* labelled default transitions
 	* implicit tick event
@@ -40,6 +40,11 @@ Unsupported Stateflow features:
 	* variables of float types
 	* MATLAB as action language
 
+Limitations:
+
+	The range of integer types differ in Stateflow and DVE. Also boolean
+	variables from Stateflow are translated as byte variables in DVE.
+
 Dependencies:
 
 	Sf2dve is written in python3 and uses libraries lxml a ply.
@@ -55,11 +60,10 @@ Usage examples:
 
 	Full usage: python3 sf2dve.py --help
 
-Testing sf2dve:
+	The program is also able to generate an additional process that
+	models simplified environment for the model. The variables with the
+	scope 'input' are then nondeterministically assigned values within
+	given range.
 
-	The program is also able to generate an additional process for
-	testing correctness of the transformation. Variables with the scope
-	'input' are then nondeterministically assigned random numbers.
-
-This tool was created as part of a bachelor's thesis on Masaryk
+This tool was created as part of a bachelor's thesis on Masaryk 
 University Faculty of Informatics, Brno.
