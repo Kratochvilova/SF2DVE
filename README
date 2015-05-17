@@ -65,5 +65,6 @@ Usage examples:
 	scope 'input' are then nondeterministically assigned values within
 	given range.
 
+
 This tool was created as part of a bachelor's thesis on Masaryk 
 University Faculty of Informatics, Brno.

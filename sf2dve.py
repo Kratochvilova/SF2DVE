@@ -117,7 +117,7 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
         # conditions and negated conditions of transitions with higher priority
         conditions = copy(trans["conditions"])
         if force_alternation:
-            conditions.append(ALTERNATION_VAR)
+            conditions.append("not %s" % ALTERNATION_VAR)
         for trans2 in chart.transitions:
             if (trans2["src"] == trans["src"] and
             (trans2["srcHierarchy"] < trans["srcHierarchy"] or
@@ -133,7 +133,7 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
         # actions
         actions = copy(trans["actions"])
         if force_alternation:
-            actions.append("%s = 0" % ALTERNATION_VAR)
+            actions.append("%s = 1" % ALTERNATION_VAR)
         if actions != []:
             outfile.write(" effect %s;" % ", ".join(actions))
 
@@ -157,7 +157,7 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
             # conditions
             conditions = []
             if force_alternation:
-                conditions.append(ALTERNATION_VAR)
+                conditions.append("not %s" % ALTERNATION_VAR)
             for trans in filter(lambda x:x["src"] == stateSSID, chart.transitions):
                 conditions.append(negateConditions(trans["conditions"]))
             if conditions != []:
@@ -166,7 +166,7 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
             # actions
             actions = copy(state["label"]["du"])
             if force_alternation:
-                actions.append("%s = 0" % ALTERNATION_VAR)
+                actions.append("%s = 1" % ALTERNATION_VAR)
             outfile.write(" effect %s;" % ", ".join(actions))
 
             outfile.write(" }\n")
@@ -207,7 +207,7 @@ def writeProcessFeedInputs(outfile, charts, input_values, force_alternation):
     for i in range(0, intSize**len(intVars) * byteSize**len(byteVars)):
         l = i
         if force_alternation:
-            outfile.write("\t\tstart -> start { guard not %s; effect %s = 1, "
+            outfile.write("\t\tstart -> start { guard %s; effect %s = 0, "
                           % (ALTERNATION_VAR, ALTERNATION_VAR))
         else:
             outfile.write("\t\tstart -> start { effect ")
