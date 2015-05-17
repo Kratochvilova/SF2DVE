@@ -150,9 +150,9 @@ def parseTransitionLabel(labelString, ssid):
 #   - ssid = {hierarchical name, label, parents}
 #       - label = {name, entry actions, during actions, exit actions}
 # transitions
-#   - {ssid, label, source, destination, srcHierarchy, transType, order}
+#   - {ssid, source, destination, conditions, actions,
+#      srcHierarchy, transType, order}
 #       - ssid is no longer unique
-#       - label = {condition, condition actions, transition actions}
 #       - scrHierarchy, transType and order together define execution order
 #         (determined first by srcHierarchy, then by transType and then by
 #         order; in all cases lower number means higher priority)

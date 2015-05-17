@@ -27,8 +27,9 @@ from lxml import etree
 from copy import copy
 from extendedExceptions import notSupportedException, invalidInputException
 
-processPrefix = "process_"
-statePrefix = "state_"
+PROCESS_PREFIX = "process_"
+STATE_PREFIX = "state_"
+ALTERNATION_VAR = "sf2dve_alt"
 
 # Checks action language, number of machines and state labels.
 def checkInput(stateflowEtree):
@@ -65,19 +66,19 @@ def checkInput(stateflowEtree):
 
 def getStateID(ssid, states, state_names):
     if state_names == "id" or ssid == "start" or ssid == "error":
-        return statePrefix + ssid
+        return STATE_PREFIX + ssid
     elif state_names == "hierarchical":
-        return statePrefix + states[ssid]["longName"]
+        return STATE_PREFIX + states[ssid]["longName"]
     else:
-        return statePrefix + states[ssid]["label"]["name"]
+        return STATE_PREFIX + states[ssid]["label"]["name"]
 
-def writeProcess(chart, outfile, state_names, input_values):
+def writeProcess(chart, outfile, state_names, input_values, force_alternation):
     from planarization import negateConditions
     # process declaration
     if state_names == "id":
-        outfile.write("process %s%s {\n" % (processPrefix, chart.chartID))
+        outfile.write("process %s%s {\n" % (PROCESS_PREFIX, chart.chartID))
     else:
-        outfile.write("process %s%s {\n" % (processPrefix, chart.chartName))
+        outfile.write("process %s%s {\n" % (PROCESS_PREFIX, chart.chartName))
 
     # variables
     for varName, varDef in chart.variables.items():
@@ -96,7 +97,7 @@ def writeProcess(chart, outfile, state_names, input_values):
     # states
     stateList = [getStateID(ssid, chart.states, state_names) for ssid in chart.states]
     outfile.write("\tstate %s;\n" % ", ".join(stateList))
-    outfile.write("\tinit %sstart;\n" % statePrefix)
+    outfile.write("\tinit %sstart;\n" % STATE_PREFIX)
 
     # transitions (without loops emulating during actions)
     startTrans = False
@@ -115,6 +116,8 @@ def writeProcess(chart, outfile, state_names, input_values):
 
         # conditions and negated conditions of transitions with higher priority
         conditions = copy(trans["conditions"])
+        if force_alternation:
+            conditions.append(ALTERNATION_VAR)
         for trans2 in chart.transitions:
             if (trans2["src"] == trans["src"] and
             (trans2["srcHierarchy"] < trans["srcHierarchy"] or
@@ -128,8 +131,11 @@ def writeProcess(chart, outfile, state_names, input_values):
             outfile.write(" guard %s;" % ", ".join(conditions))
 
         # actions
-        if trans["actions"] != []:
-            outfile.write(" effect %s;" % ", ".join(trans["actions"]))
+        actions = copy(trans["actions"])
+        if force_alternation:
+            actions.append("%s = 0" % ALTERNATION_VAR)
+        if actions != []:
+            outfile.write(" effect %s;" % ", ".join(actions))
 
         outfile.write(" }\n")
 
@@ -150,19 +156,24 @@ def writeProcess(chart, outfile, state_names, input_values):
 
             # conditions
             conditions = []
+            if force_alternation:
+                conditions.append(ALTERNATION_VAR)
             for trans in filter(lambda x:x["src"] == stateSSID, chart.transitions):
                 conditions.append(negateConditions(trans["conditions"]))
             if conditions != []:
                 outfile.write(" guard %s;" % ", ".join(conditions))
 
             # actions
-            outfile.write(" effect %s;" % ", ".join(state["label"]["du"]))
+            actions = copy(state["label"]["du"])
+            if force_alternation:
+                actions.append("%s = 0" % ALTERNATION_VAR)
+            outfile.write(" effect %s;" % ", ".join(actions))
 
             outfile.write(" }\n")
 
     outfile.write("}\n\n")
 
-def writeProcessFeedInputs(outfile, charts, input_values):
+def writeProcessFeedInputs(outfile, charts, input_values, force_alternation):
     byteMin = 0
     byteMax = 1
     intMin = input_values[0]
@@ -170,6 +181,8 @@ def writeProcessFeedInputs(outfile, charts, input_values):
     byteSize = byteMax - byteMin + 1
     intSize = intMax - intMin + 1
     
+    if force_alternation:
+        outfile.write("byte %s;\n" % ALTERNATION_VAR)
     byteVars = []
     intVars = []
     for chart in charts:
@@ -193,7 +206,11 @@ def writeProcessFeedInputs(outfile, charts, input_values):
         lastVar = intVars[-1]
     for i in range(0, intSize**len(intVars) * byteSize**len(byteVars)):
         l = i
-        outfile.write("\t\tstart -> start { effect ")
+        if force_alternation:
+            outfile.write("\t\tstart -> start { guard not %s; effect %s = 1, "
+                          % (ALTERNATION_VAR, ALTERNATION_VAR))
+        else:
+            outfile.write("\t\tstart -> start { effect ")
         for varName in byteVars:
             outfile.write("%s = %s" % (varName, int(l % byteSize + byteMin)))
             l = (l - l % byteSize) / byteSize
@@ -207,7 +224,7 @@ def writeProcessFeedInputs(outfile, charts, input_values):
         outfile.write("; }\n")
     outfile.write("}\n\n")
 
-def sf2dve(infile, outfile, state_names, input_values):
+def sf2dve(infile, outfile, state_names, input_values, force_alternation):
     from planarization import makePlanarized
     try:
         stateflowEtree = etree.parse(infile)
@@ -219,11 +236,18 @@ def sf2dve(infile, outfile, state_names, input_values):
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
         charts.append(makePlanarized(chart))
 
+    #if force_alternation:
+    #    alternationVar = "sf2dve_alt"
+    #    for chart in charts:
+    #        for var in chart.variables:
+    #            if var == alternationVar:
+    #                alternationVar += "0"
+
     if input_values is not None:
-        writeProcessFeedInputs(outfile, charts, input_values)
+        writeProcessFeedInputs(outfile, charts, input_values, force_alternation)
 
     for chart in charts:
-        writeProcess(chart, outfile, state_names, input_values)
+        writeProcess(chart, outfile, state_names, input_values, force_alternation)
 
     outfile.write("system async;\n\n")
 
@@ -242,17 +266,22 @@ def main():
                         "id (default) when generating input for DiVinE. " +\
                         "Also affects names of processes.",
                         choices=["id", "hierarchical", "name"], default="id")
-    parser.add_argument("-f", "--feed-input", help="this option adds " +\
+    parser.add_argument("-f", "--feed-inputs", help="this option adds " +\
                         "process that nondeterministically feeds input " +\
                         "variables with values from given interval, " +\
                         "<0,1> for bytes, <0,7> for integers.", 
                         action='store_true')
-    parser.add_argument("-i", "--input-values", help="Similar to the option" +\
+    parser.add_argument("-i", "--input-values", help="similar to the option" +\
                         "--feed-inputs. For bytes the interval is <0,1>, " +\
                         "For integers the interval is to be specified with " +\
                         "the marginal numbers in format: 0,7 If the first " +\
                         "number is negative, use format: ' -7,7'", type=str, 
                         default=None)
+    parser.add_argument("-a", "--force-alternation", help="adjusts the " +\
+                        "processes, such that they are alternating - in " +\
+                        "odd steps the feed_inputs process is executed, " +\
+                        "in even steps some other process is executed.", 
+                        action='store_true')
     args = parser.parse_args()
     
     input_file = args.input
@@ -294,13 +323,17 @@ def main():
             print("Incorrect format of the interval: the first number must " +\
             "be lower then the second", file=sys.stderr)
             return 1
-    elif args.feed_input:
+    elif args.feed_inputs:
         input_values = [0, 7]
     else: 
         input_values = None
 
+    if input_values is None:
+        args.force_alternation = False
+
     try:
-        sf2dve(input_file, output_file, args.state_names, input_values)
+        sf2dve(input_file, output_file, args.state_names, input_values, 
+               args.force_alternation)
     except notSupportedException as e:
         print("Following is not supported: %s" % e, file=sys.stderr)
         return 1
