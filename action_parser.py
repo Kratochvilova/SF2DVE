@@ -23,6 +23,7 @@ Created on Sun Nov  9 09:35:20 2014
 
 from ply import lex, yacc
 import os
+from collections import OrderedDict
 
 newVars = None
 prefix = None
@@ -471,9 +472,11 @@ except OSError:
 lexer = lex.lex(debug=False, optimize=True, outputdir=directory)
 parser = yacc.yacc(debug=False, optimize=True, outputdir=directory)
 
-def parse(text, tempPrefix="", variables={}, lexer=lexer):    
+def parse(text, tempPrefix="", variables=None, lexer=lexer):
     global prefix
     global newVars
     prefix = tempPrefix
+    if variables is None:
+        variables = OrderedDict()
     newVars = variables
     return (parser.parse(text, lexer), newVars)

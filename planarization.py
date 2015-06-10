@@ -24,16 +24,19 @@ Created on Thu Sep 25 13:21:52 2014
 import re, state_parser, transition_parser, action_parser, condition_parser
 from copy import copy
 from extendedExceptions import notSupportedException
+from collections import OrderedDict
 
 # labels - parsed labels of states and transitions
 # labelVariables - variables declared in labels
 class LabelCache:
     chart = None
-    labels = {}
-    labelVariables = {}
+    labels = None
+    labelVariables = None
 
     def __init__(self, chart):
         self.chart = chart
+        self.labels = {}
+        self.labelVariables = OrderedDict()
 
     def _get(self, key, nodeType):
         if nodeType not in self.labels:
@@ -96,7 +99,7 @@ def parseStateLabel(labelString, ssid):
     labelDict["en"] = []
     labelDict["du"] = []
     labelDict["ex"] = []
-    labelVariables = {}
+    labelVariables = OrderedDict()
 
     parsedLabel = state_parser.parse(labelString)
     if parsedLabel is None:
@@ -122,7 +125,7 @@ def parseTransitionLabel(labelString, ssid):
     labelDict["condition"] = ""
     labelDict["ca"] = []
     labelDict["ta"] = []
-    labelVariables = {}
+    labelVariables = OrderedDict()
 
     parsedLabel = transition_parser.parse(labelString.strip())
     if parsedLabel[0] is not None:
@@ -161,9 +164,14 @@ def parseTransitionLabel(labelString, ssid):
 class PlanarizedChart:
     chartID = 0
     chartName = ""
-    states = {}
-    transitions = []
-    variables = {}
+    states = None
+    transitions = None
+    variables = None
+    
+    def __init__(self):
+        self.states = OrderedDict()
+        self.transitions = []
+        self.variables = OrderedDict()
 
     def addState(self, stateEl, labelCache):
         stateSSID = stateEl.get("SSID")

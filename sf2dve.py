@@ -102,17 +102,9 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
     # transitions (without loops emulating during actions)
     startTrans = False
     for trans in chart.transitions:
-        if not startTrans:
-            startTrans = True
-            outfile.write("\ttrans\n")
-        outfile.write("\t\t")
-
         # from -> to
         source = getStateID(trans["src"], chart.states, state_names)
         destination = getStateID(trans["dst"], chart.states, state_names)
-        outfile.write("%s -> %s" % (source, destination))
-
-        outfile.write((" {"))
 
         # conditions and negated conditions of transitions with higher priority
         conditions = copy(trans["conditions"])
@@ -127,49 +119,59 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
             (trans2["transType"] == trans["transType"] and
             trans2["order"] < trans["order"])))):
                 conditions.append(negateConditions(trans2["conditions"]))
-        if conditions != []:
-            outfile.write(" guard %s;" % ", ".join(conditions))
+        
 
         # actions
         actions = copy(trans["actions"])
         if force_alternation:
             actions.append("%s = 1" % ALTERNATION_VAR)
+
+        # printing
+        if not startTrans:
+            startTrans = True
+            outfile.write("\ttrans\n")
+        outfile.write("\t\t")
+
+        outfile.write("%s -> %s" % (source, destination))
+        outfile.write((" {"))
+        if conditions != []:
+            outfile.write(" guard %s;" % ", ".join(conditions))
         if actions != []:
             outfile.write(" effect %s;" % ", ".join(actions))
-
         outfile.write(" }\n")
 
     # during actions
     for stateSSID, state in chart.states.items():
-        if state["label"]["du"] != []:
-            if not startTrans:
-                startTrans = True
-                outfile.write("\ttrans\n")
+        # from -> to
+        stateID = getStateID(stateSSID, chart.states, state_names)
 
-            outfile.write("\t\t")
+        # conditions
+        conditions = []
+        if force_alternation:
+            conditions.append("not %s" % ALTERNATION_VAR)
+        for trans in filter(lambda x:x["src"] == stateSSID, chart.transitions):
+            conditions.append(negateConditions(trans["conditions"]))
+        
 
-            # from -> to
-            stateID = getStateID(stateSSID, chart.states, state_names)
-            outfile.write("%s -> %s" % (stateID, stateID))
+        # actions
+        actions = copy(state["label"]["du"])
+        if actions == []:
+            continue
+        if force_alternation:
+            actions.append("%s = 1" % ALTERNATION_VAR)
 
-            outfile.write((" {"))
+        # printing
+        if not startTrans:
+            startTrans = True
+            outfile.write("\ttrans\n")
+        outfile.write("\t\t")
 
-            # conditions
-            conditions = []
-            if force_alternation:
-                conditions.append("not %s" % ALTERNATION_VAR)
-            for trans in filter(lambda x:x["src"] == stateSSID, chart.transitions):
-                conditions.append(negateConditions(trans["conditions"]))
-            if conditions != []:
-                outfile.write(" guard %s;" % ", ".join(conditions))
-
-            # actions
-            actions = copy(state["label"]["du"])
-            if force_alternation:
-                actions.append("%s = 1" % ALTERNATION_VAR)
-            outfile.write(" effect %s;" % ", ".join(actions))
-
-            outfile.write(" }\n")
+        outfile.write("%s -> %s" % (stateID, stateID))
+        outfile.write((" {"))
+        if conditions != []:
+            outfile.write(" guard %s;" % ", ".join(conditions))
+        outfile.write(" effect %s;" % ", ".join(actions))
+        outfile.write(" }\n")
 
     outfile.write("}\n\n")
 
@@ -236,13 +238,6 @@ def sf2dve(infile, outfile, state_names, input_values, force_alternation):
     for chart in stateflowEtree.findall("Stateflow/machine/Children/chart"):
         charts.append(makePlanarized(chart))
 
-    #if force_alternation:
-    #    alternationVar = "sf2dve_alt"
-    #    for chart in charts:
-    #        for var in chart.variables:
-    #            if var == alternationVar:
-    #                alternationVar += "0"
-
     if input_values is not None:
         writeProcessFeedInputs(outfile, charts, input_values, force_alternation)
 
@@ -280,10 +275,10 @@ def main():
     parser.add_argument("-a", "--force-alternation", help="adjusts the " +\
                         "processes, such that they are alternating - in " +\
                         "odd steps the feed_inputs process is executed, " +\
-                        "in even steps some other process is executed.", 
+                        "in even steps some other process is executed.",
                         action='store_true')
     args = parser.parse_args()
-    
+
     input_file = args.input
     output_file = args.output
     if output_file is None:
@@ -310,13 +305,13 @@ def main():
     if args.input_values is not None:
         input_values = args.input_values.split(',')
         if len(input_values) != 2:
-            print("Incorrect format of the interval: too many numbers", 
+            print("Incorrect format of the interval: too many numbers",
                   file=sys.stderr)
             return 1
         try:
             input_values = [int(input_values[0]), int(input_values[1])]
         except ValueError:
-            print("Incorrect format of the interval: numbers not recognized", 
+            print("Incorrect format of the interval: numbers not recognized",
                   file=sys.stderr)
             return 1
         if input_values[0] > input_values[1]:
@@ -332,7 +327,7 @@ def main():
         args.force_alternation = False
 
     try:
-        sf2dve(input_file, output_file, args.state_names, input_values, 
+        sf2dve(input_file, output_file, args.state_names, input_values,
                args.force_alternation)
     except notSupportedException as e:
         print("Following is not supported: %s" % e, file=sys.stderr)
