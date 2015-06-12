@@ -119,7 +119,8 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
             (trans2["transType"] == trans["transType"] and
             trans2["order"] < trans["order"])))):
                 conditions.append(negateConditions(trans2["conditions"]))
-        
+        if "false" in conditions:
+            continue
 
         # actions
         actions = copy(trans["actions"])
@@ -151,7 +152,8 @@ def writeProcess(chart, outfile, state_names, input_values, force_alternation):
             conditions.append("not %s" % ALTERNATION_VAR)
         for trans in filter(lambda x:x["src"] == stateSSID, chart.transitions):
             conditions.append(negateConditions(trans["conditions"]))
-        
+        if "false" in conditions:
+            continue
 
         # actions
         actions = copy(state["label"]["du"])
